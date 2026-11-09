@@ -34,12 +34,12 @@ function budgetIcon(name) { return state.budgets.find((b) => b.name === name)?.i
 const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 /** A little burst of confetti plus a message, for the good moments. */
-function celebrate(message) {
-  toast(message);
+function celebrate(message, options) {
+  toast(message, options);
   if (reducedMotion()) return;
   const colours = ['#c9f36a', '#234c39', '#f8b98f', '#9482b2', '#6f8f58', '#f2d06b'];
   const originX = window.innerWidth / 2;
-  const originY = window.innerHeight - 120;
+  const originY = window.innerHeight * 0.45; // burst mid-screen, clear of the message at the bottom
   for (let i = 0; i < 26; i++) {
     const bit = document.createElement('i');
     bit.className = 'confetti';
@@ -82,11 +82,57 @@ function greet(name) {
 }
 let userName = '';
 
-function toast(message) {
-  $('toast').textContent = message;
-  $('toast').classList.add('show');
+function toast(message, { undo = false } = {}) {
+  const el = $('toast');
+  el.textContent = '';
+  const text = document.createElement('span');
+  text.textContent = message;
+  el.append(text);
+  if (undo) {
+    const btn = Object.assign(document.createElement('button'), { type: 'button', className: 'toastundo', textContent: 'Undo' });
+    btn.onclick = () => { el.classList.remove('show'); undoLast(); };
+    el.append(btn);
+  }
+  el.classList.toggle('has-action', undo);
+  el.classList.add('show');
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => $('toast').classList.remove('show'), 2600);
+  toast.timer = setTimeout(() => el.classList.remove('show'), undo ? 6000 : 2600);
+}
+
+// ---------- undo ----------
+// Every change can be undone: from the message that pops up, the Undo button in the
+// top bar (steps back through the last 20 changes), or Ctrl/Cmd+Z on a computer.
+
+const undoStack = [];
+
+function pushUndo(label, run) {
+  undoStack.push({ label, run });
+  if (undoStack.length > 20) undoStack.shift();
+  refreshUndo();
+}
+
+/** Undo for changes to the plan: put the whole plan back as it was. */
+function planUndo(label, before) {
+  pushUndo(label, async () => { state = before; await saveState(); });
+}
+
+function refreshUndo() {
+  const top = undoStack[undoStack.length - 1];
+  $('undoBtn').hidden = !top;
+  if (top) $('undoBtn').title = `Undo: ${top.label}`;
+}
+
+async function undoLast() {
+  const top = undoStack.pop();
+  refreshUndo();
+  if (!top) return;
+  try {
+    await top.run();
+    render();
+    toast(`Undone: ${top.label}`);
+  } catch (error) {
+    toast(`Couldn’t undo: ${error.message}`);
+  }
 }
 
 function saveState() {
@@ -445,13 +491,15 @@ function payForm(c) {
   $('paySave').onclick = async () => {
     const amt = toCents(input.value);
     if (!(amt > 0)) { $('formError').textContent = 'Enter how much you paid.'; return; }
+    const before = structuredClone(state);
     const paidNow = Math.min(amt, c.amount);
     if (c.kind === 'Afterpay') state.afterpayBalance = Math.max(0, state.afterpayBalance - paidNow);
     if (amt >= c.amount) {
       state.commitments = state.commitments.filter((x) => x !== c);
       await saveState();
       closeModal();
-      celebrate(`Paid ✓ ${c.name.split(' (')[0]}. One less thing to think about.`);
+      planUndo(`Pay ${c.name.split(' (')[0]}`, before);
+      celebrate(`Paid ✓ ${c.name.split(' (')[0]}. One less thing to think about.`, { undo: true });
     } else {
       const rest = $('restDue').value;
       if (!rest || rest < today()) { $('formError').textContent = 'Choose a date for the rest (today or later).'; return; }
@@ -460,7 +508,8 @@ function payForm(c) {
       c.due = rest;
       await saveState();
       closeModal();
-      celebrate(`Paid ${formatMoney(paidNow)} ✓ The other ${formatMoney(c.amount)} is due ${shortDate(rest)}.`);
+      planUndo(`Pay part of ${c.name.split(' (')[0]}`, before);
+      celebrate(`Paid ${formatMoney(paidNow)} ✓ The other ${formatMoney(c.amount)} is due ${shortDate(rest)}.`, { undo: true });
     }
   };
   $('overlay').classList.add('open');
@@ -632,7 +681,7 @@ function closeModal() { $('overlay').classList.remove('open'); }
  * Generic form. Field types: text, money (dollars in the input, cents out), date, select.
  * onSubmit(values) may return an error string to keep the form open.
  */
-function openForm({ title, fields, submitLabel, onSubmit, note, extraButtons = [] }) {
+function openForm({ title, fields, submitLabel, onSubmit, note, extraButtons = [], undo = true }) {
   $('modalTitle').textContent = title;
   const fieldHtml = (f) => {
     const id = `f_${f.name}`;
@@ -676,9 +725,11 @@ function openForm({ title, fields, submitLabel, onSubmit, note, extraButtons = [
     }
     const button = form.querySelector('.savebtn');
     button.disabled = true;
+    const before = structuredClone(state);
     try {
       const error = await onSubmit(values);
       if (error) { $('formError').textContent = error; return; }
+      if (undo && JSON.stringify(state) !== JSON.stringify(before)) planUndo(title.replace(/^Add (a |an )?/i, 'Add '), before);
       closeModal();
     } catch (err) {
       $('formError').textContent = err.message;
@@ -709,6 +760,7 @@ function spendingForm(existing) {
       { name: 'date', label: 'Date', type: 'date', value: existing?.date || defaultDate, max: today(), required: true },
     ],
     note: 'Saved to your Weekwell database. No bank connection needed.',
+    undo: false,
     onSubmit: async (v) => {
       if (v.date > today()) return 'Date can’t be in the future.';
       const entry = { name: v.name, amount: v.amount, category: v.category, date: v.date };
@@ -720,11 +772,20 @@ function spendingForm(existing) {
         }
         const saved = await api.updateTransaction(existing.id, entry);
         transactions = transactions.map((t) => (t.id === existing.id ? saved : t)).sort(byNewest);
-        toast('Spending updated.');
+        const old = { name: existing.name, amount: existing.amount, category: existing.category, date: existing.date };
+        pushUndo(`Edit ${existing.name}`, async () => {
+          const back = await api.updateTransaction(existing.id, old);
+          transactions = transactions.map((t) => (t.id === existing.id ? back : t)).sort(byNewest);
+        });
+        toast('Spending updated.', { undo: true });
       } else {
         const saved = await api.addTransaction(entry);
         transactions = [saved, ...transactions].sort(byNewest);
-        toast('Spending logged. Limits updated.');
+        pushUndo(`Log ${saved.name}`, async () => {
+          await api.deleteTransaction(saved.id);
+          transactions = transactions.filter((t) => t.id !== saved.id);
+        });
+        toast('Spending logged. Limits updated.', { undo: true });
       }
       render();
     },
@@ -965,17 +1026,28 @@ function categoriesForm() {
     if (new Set(names.map((n) => n.toLowerCase())).size !== names.length) { $('formError').textContent = 'Two categories have the same name.'; return; }
     if (draft.some((b) => b.limit < 0)) { $('formError').textContent = 'Limits can’t be negative.'; return; }
     try {
+      const snapshot = structuredClone(state);
+      const renames = [];
       for (const b of draft) {
         const before = state.budgets.find((x) => x.id === b.id);
         if (before && before.name !== b.name) {
           await api.renameCategory(before.name, b.name);
           transactions = transactions.map((t) => (t.category === before.name ? { ...t, category: b.name } : t));
+          renames.push([before.name, b.name]);
         }
       }
       state.budgets = draft;
       await saveState();
+      pushUndo('Change categories', async () => {
+        for (const [from, to] of renames) {
+          await api.renameCategory(to, from);
+          transactions = transactions.map((t) => (t.category === to ? { ...t, category: from } : t));
+        }
+        state = snapshot;
+        await saveState();
+      });
       closeModal();
-      toast('Categories saved.');
+      toast('Categories saved.', { undo: true });
     } catch (error) {
       $('formError').textContent = error.message;
     }
@@ -1066,6 +1138,11 @@ function wireEvents() {
   $('openBackup').onclick = backupDialog;
   $('editCategories').onclick = categoriesForm;
   $('closeModal').onclick = closeModal;
+  $('undoBtn').onclick = undoLast;
+  document.addEventListener('keydown', (e) => {
+    const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName || '');
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !typing && !$('overlay').classList.contains('open')) { e.preventDefault(); undoLast(); }
+  });
   $('overlay').onclick = (e) => { if (e.target === $('overlay')) closeModal(); };
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
 
@@ -1076,27 +1153,37 @@ function wireEvents() {
     if (d.editTx) spendingForm(find(transactions, d.editTx));
     if (d.delTx) {
       const tx = find(transactions, d.delTx);
-      if (!tx || !confirm(`Delete “${tx.name}” (${formatMoney(tx.amount)})?`)) return;
-      try { await api.deleteTransaction(tx.id); transactions = transactions.filter((x) => x.id !== tx.id); render(); toast('Entry deleted.'); }
-      catch (error) { toast(error.message); }
+      if (!tx) return;
+      try {
+        await api.deleteTransaction(tx.id);
+        transactions = transactions.filter((x) => x.id !== tx.id);
+        render();
+        pushUndo(`Delete ${tx.name}`, async () => {
+          const back = await api.restoreTransaction(tx.id);
+          transactions = [back, ...transactions].sort(byNewest);
+        });
+        toast(`Deleted ${tx.name}.`, { undo: true });
+      } catch (error) { toast(error.message); }
     }
     if (d.editBill) billForm(find(state.bills, d.editBill));
     if (d.delBill) {
       const bill = find(state.bills, d.delBill);
-      if (bill && confirm(`Remove “${bill.name}”?`)) { state.bills = state.bills.filter((b) => b !== bill); saveState(); }
+      if (bill) { const before = structuredClone(state); state.bills = state.bills.filter((b) => b !== bill); saveState(); planUndo(`Remove ${bill.name}`, before); toast(`Removed ${bill.name}.`, { undo: true }); }
     }
     if (d.editCom) commitmentForm(find(state.commitments, d.editCom));
     if (d.paidCom) {
       const c = find(state.commitments, d.paidCom);
-      if (!c || !confirm(`Mark “${c.name}” (${formatMoney(c.amount)}) as paid?`)) return;
+      if (!c) return;
+      const before = structuredClone(state);
       if (c.kind === 'Afterpay') state.afterpayBalance = Math.max(0, state.afterpayBalance - c.amount);
       state.commitments = state.commitments.filter((x) => x !== c);
       saveState();
-      celebrate(`Paid ✓ ${c.name.split(' (')[0]}. One less thing to think about.`);
+      planUndo(`Pay ${c.name.split(' (')[0]}`, before);
+      celebrate(`Paid ✓ ${c.name.split(' (')[0]}. One less thing to think about.`, { undo: true });
     }
     if (d.delCom) {
       const c = find(state.commitments, d.delCom);
-      if (c && confirm(`Remove “${c.name}” without marking it paid?`)) { state.commitments = state.commitments.filter((x) => x !== c); saveState(); }
+      if (c) { const before = structuredClone(state); state.commitments = state.commitments.filter((x) => x !== c); saveState(); planUndo(`Remove ${c.name.split(' (')[0]}`, before); toast(`Removed ${c.name.split(' (')[0]}.`, { undo: true }); }
     }
     if (d.open) ({ balances: balancesForm, settings: settingsForm, plan: planForm })[d.open]?.();
     if (d.payCom) payForm(find(state.commitments, d.payCom));
@@ -1104,31 +1191,38 @@ function wireEvents() {
     if (d.editIncoming) incomingForm(find(state.incoming || [], d.editIncoming));
     if (d.delIncoming) {
       const m = find(state.incoming || [], d.delIncoming);
-      if (m && confirm(`Remove “${m.name}”?`)) { state.incoming = state.incoming.filter((x) => x !== m); saveState(); }
+      if (m) { const before = structuredClone(state); state.incoming = state.incoming.filter((x) => x !== m); saveState(); planUndo(`Remove ${m.name}`, before); toast(`Removed ${m.name}.`, { undo: true }); }
     }
     if (d.arrivedIncoming) {
       const m = find(state.incoming || [], d.arrivedIncoming);
-      if (!m || !confirm(`${m.name} arrived? Move it into your Savers as shown, then enter your new balances so the plan counts it.`)) return;
+      if (!m) return;
+      const before = structuredClone(state);
       state.incoming = state.incoming.filter((x) => x !== m);
       await saveState();
+      planUndo(`${m.name} arrived`, before);
+      celebrate(`${m.name} arrived 🎉 Move it as shown, then enter your new balances.`, { undo: true });
       balancesForm();
     }
     if (d.checkWant) buyCheckDialog(find(state.wants, d.checkWant));
     if (d.upWant) {
       const w = find(state.wants, d.upWant);
+      const before = structuredClone(state);
       state.wants = [w, ...state.wants.filter((x) => x !== w)];
       saveState();
+      planUndo(`Move ${w.name} first`, before);
     }
     if (d.boughtWant) {
       const w = find(state.wants, d.boughtWant);
-      if (!w || !confirm(`Mark “${w.name}” as bought and remove it from wants?`)) return;
+      if (!w) return;
+      const before = structuredClone(state);
       state.wants = state.wants.filter((x) => x !== w);
       saveState();
-      if (w.saved >= w.price) celebrate('Enjoy it! Paid for without touching savings.'); else toast('Bought. Update your balances so the forecast knows.');
+      planUndo(`Bought ${w.name}`, before);
+      if (w.saved >= w.price) celebrate('Enjoy it! Paid for without touching savings.', { undo: true }); else toast('Bought. Update your balances so the forecast knows.', { undo: true });
     }
     if (d.delWant) {
       const w = find(state.wants, d.delWant);
-      if (w && confirm(`Remove “${w.name}” from wants?`)) { state.wants = state.wants.filter((x) => x !== w); saveState(); }
+      if (w) { const before = structuredClone(state); state.wants = state.wants.filter((x) => x !== w); saveState(); planUndo(`Remove ${w.name}`, before); toast(`Removed ${w.name}.`, { undo: true }); }
     }
   });
 }

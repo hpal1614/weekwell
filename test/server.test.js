@@ -24,7 +24,7 @@ before(async () => {
   await db.query(`CREATE TABLE weekwell_state (id smallint PRIMARY KEY CHECK (id = 1), payload jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now())`);
   await db.query(`CREATE TABLE weekwell_schema_migrations (version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`);
   await db.query(`INSERT INTO weekwell_schema_migrations (version) VALUES ('0001_weekwell_state')`);
-  assert.deepEqual(await migrate(db), ['0002_transactions_and_backups', '0003_transaction_source']);
+  assert.deepEqual(await migrate(db), ['0002_transactions_and_backups', '0003_transaction_source', '0004_soft_delete']);
   assert.deepEqual(await migrate(db), []);
   const upFetch = async (url) => ({ ok: true, status: 200, json: async () => (url.includes('/accounts')
     ? { data: [{ id: 'spend', attributes: { displayName: 'Spending', accountType: 'TRANSACTIONAL', balance: { valueInBaseUnits: 1000 } } }] }
@@ -163,4 +163,22 @@ test('Up sync adds card purchases once, and skips ones you already logged by han
   const tx = (await call('GET', '/api/transactions')).body;
   assert.deepEqual(tx.map((t) => [t.name, t.source]).sort(), [['Coles', 'up'], ['coffee (typed in)', 'manual']]);
   assert.equal(tx.find((t) => t.name === 'Coles').category, 'Groceries');
+});
+
+test('deleting is undoable, and a deleted Up purchase is never synced back in', { skip }, async () => {
+  await call('GET', '/api/state');
+  const a = (await call('POST', '/api/transactions', { date: '2026-11-09', amount: 1234, category: 'Other', name: 'Undo me' })).body;
+  assert.equal((await call('DELETE', `/api/transactions/${a.id}`)).status, 200);
+  assert.equal((await call('GET', '/api/transactions')).body.length, 0);
+  assert.equal((await call('GET', '/api/export')).body.transactions.length, 0);
+  const back = await call('POST', `/api/transactions/${a.id}/restore`);
+  assert.equal(back.status, 200);
+  assert.equal(back.body.name, 'Undo me');
+  assert.equal((await call('GET', '/api/transactions')).body.length, 1);
+
+  await call('POST', '/api/up/sync');
+  const coles = (await call('GET', '/api/transactions')).body.find((t) => t.name === 'Coles');
+  await call('DELETE', `/api/transactions/${coles.id}`);
+  assert.equal((await call('POST', '/api/up/sync')).body.added, 0); // stays deleted
+  assert.ok(!(await call('GET', '/api/transactions')).body.some((t) => t.name === 'Coles'));
 });
