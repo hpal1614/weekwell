@@ -403,6 +403,7 @@ export function validateState(state) {
       || (pd.steps != null && (!Array.isArray(pd.steps) || pd.steps.length > 60))) errors.push('payday is invalid');
   }
   if (state.learning != null && (typeof state.learning !== 'object' || (state.learning.seen != null && !Array.isArray(state.learning.seen)))) errors.push('learning is invalid');
+  if (state.invest != null && (typeof state.invest !== 'object' || Array.isArray(state.invest))) errors.push('invest is invalid');
   if (state.merchantRules != null) {
     const rules = state.merchantRules;
     if (typeof rules !== 'object' || Array.isArray(rules) || Object.keys(rules).length > 1000

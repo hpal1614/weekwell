@@ -1,9 +1,11 @@
 // Thin wrapper around the server API. Throws an Error with a readable message on failure.
 
-async function request(method, url, body) {
+let stateRevision = '';
+
+async function request(method, url, body, extraHeaders = {}) {
   const response = await fetch(url, {
     method,
-    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+    headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...extraHeaders },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   let data = null;
@@ -15,6 +17,10 @@ async function request(method, url, body) {
     if (response.status === 401) window.dispatchEvent(new CustomEvent('weekwell:signed-out'));
     throw error;
   }
+  if (url === '/api/state') {
+    if (method === 'GET') stateRevision = response.headers.get('X-State-Revision') || '';
+    else if (data?.revision) stateRevision = data.revision;
+  }
   return data;
 }
 
@@ -23,7 +29,7 @@ export const api = {
   me: () => request('GET', '/api/me'),
   logout: () => request('POST', '/auth/logout'),
   getState: () => request('GET', '/api/state'),
-  putState: (state) => request('PUT', '/api/state', state),
+  putState: (state) => request('PUT', '/api/state', state, stateRevision ? { 'X-State-Revision': stateRevision } : {}),
   listTransactions: (from, to) => request('GET', `/api/transactions?${new URLSearchParams({ ...(from && { from }), ...(to && { to }) })}`),
   addTransaction: (t) => request('POST', '/api/transactions', t),
   updateTransaction: (id, t) => request('PUT', `/api/transactions/${encodeURIComponent(id)}`, t),

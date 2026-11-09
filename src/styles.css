@@ -53,6 +53,12 @@ h1, h2, h3 { font-family: var(--display); letter-spacing: -.02em; margin: 0; }
 .toplink { border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 8px 13px; font-size: 13px; font-weight: 600; transition: transform .15s var(--ease), box-shadow .2s; }
 .toplink:hover { box-shadow: var(--shadow); }
 .toplink:active { transform: scale(.96); }
+.menubtn { display: none; }
+.menulist { display: grid; gap: 8px; margin-top: 4px; }
+.menulist button { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: 1px solid var(--line-2); background: var(--card); border-radius: 16px; padding: 15px 16px; font: 700 15.5px var(--sans); color: var(--ink); touch-action: manipulation; }
+.menulist button:active { background: var(--mint); }
+.menulist .mi { width: 34px; height: 34px; border-radius: 11px; background: var(--paper); display: grid; place-items: center; font-size: 17px; flex: none; }
+.menulist small { display: block; font: 500 12.5px var(--sans); color: var(--muted); margin-top: 2px; }
 .avatar { width: 36px; height: 36px; background: linear-gradient(135deg, #f1dcc2, #e6c9a8); color: #5d4533; border-radius: 50%; display: grid; place-items: center; font-weight: 700; }
 
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 22px; margin-top: 8px; align-items: start; }
@@ -457,6 +463,8 @@ table.history tr.current td:first-child { font-weight: 700; }
   .shell { padding: max(14px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 96px max(16px, env(safe-area-inset-left)); }
   .topbar { padding-bottom: 12px; }
   .avatar { display: none; }
+  #openBackup, #openSettings, #signOut { display: none; }
+  .menubtn { display: inline-flex; gap: 6px; align-items: center; }
   .toplink { padding: 7px 11px; }
   .greeting { flex-direction: column; align-items: stretch; gap: 10px; }
   .greeting .eyebrow { display: none; }
@@ -554,3 +562,28 @@ table.history tr.current td:first-child { font-weight: 700; }
 .lessonbtns { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; margin-top: 14px; }
 .lessonbtns .savebtn { margin-top: 0; }
 .laterbtn { border: 1.5px solid var(--line); background: var(--card); border-radius: 14px; height: 52px; font-weight: 700; font-size: 15px; color: var(--ink); }
+.lessonmorebtn { margin-top: 12px; font-size: 14px; font-weight: 700; }
+.lessonmore { margin-top: 8px; animation: rise .3s var(--ease) both; }
+.lessonmore ul { margin: 0; padding-left: 20px; display: grid; gap: 8px; font-size: 14.5px; line-height: 1.5; }
+.lessonlink { display: inline-block; margin-top: 12px; font-weight: 700; color: var(--forest); font-size: 14px; }
+
+/* ready to invest */
+.investcard { scroll-margin-top: 16px; }
+.ivnext { background: var(--sun); border-radius: var(--radius-sm); padding: 10px 12px; font-size: 13.5px; margin: 10px 0 4px; }
+.ivready { display: grid; gap: 6px; background: var(--mint); border-radius: var(--radius-sm); padding: 12px 14px; font-size: 14px; margin: 10px 0 4px; }
+.ivready > b { font: 800 16px var(--display); }
+.ivhow { margin: 10px 0 0; padding-left: 20px; font-size: 13.5px; display: grid; gap: 4px; }
+.ivlist { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 4px; }
+.ivstep { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; padding: 10px 0; border-top: 1px solid var(--line-2); }
+.ivstep:first-child { border-top: 0; }
+.ivbox { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; font: 700 12.5px var(--sans); color: var(--muted); }
+.ivbox svg { width: 14px; height: 14px; fill: none; stroke: var(--green); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.ivstep.done .ivbox { background: var(--forest); border-color: var(--forest); }
+.ivstep.next .ivbox { border-color: var(--forest); color: var(--forest); }
+.ivstep.done .ivtitle { color: var(--muted); }
+.ivtitle { font-weight: 700; font-size: 14px; line-height: 1.3; padding-top: 4px; }
+.ivdetail { font-size: 12.5px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+.ivsub { font-size: 12px; color: var(--ink-2); margin-top: 4px; font-family: var(--mono); }
+.ivstep .smallbtn { margin-top: 8px; }
+.ivstep .meter { margin-top: 6px; }
+.sidecopy.small { font-size: 12px; margin-top: 10px; }

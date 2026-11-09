@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { defaultState } from '../src/engine.js';
 import {
   addMonths, allocation, buildCashflow, canBuyNow, coolingDays, forecast, maxSafePerPay, nextPayday,
-  occurrences, paydayPlan, simulate, suggestSplit, wantsTimeline, windfallSplit,
+  investReadiness, occurrences, paydayPlan, simulate, suggestSplit, wantsTimeline, windfallSplit,
 } from '../src/forecast.js';
 
 const TODAY = '2026-11-09';
@@ -214,4 +214,31 @@ test('a different amount for one pay, and a pay already ticked off, are handled'
   const flow = buildCashflow(s, TODAY, 0);
   assert.deepEqual(pays(s)[0], ['2026-11-27', 200000]);
   assert.equal(flow.paydays[0], '2026-11-27'); // no savings move on the ticked-off day either
+});
+
+test('ready to invest: every step has to pass, in the usual order', () => {
+  const s = example({ commitments: [{ id: 'ap', name: 'Afterpay: Shoes 2 of 4', amount: 2500, due: '2026-11-20', kind: 'Afterpay', addedOn: TODAY }] });
+  s.afterpayBalance = 5000;
+  s.pots.emergency = { target: 200000, balance: 50000 };
+  let r = investReadiness(s, forecast(s, [], TODAY), TODAY, { superChecked: false, lessonsDone: 1, lessonsTotal: 7 });
+  assert.equal(r.ready, false);
+  assert.equal(r.steps.find((x) => x.key === 'debts').done, false);
+  assert.equal(r.steps.find((x) => x.key === 'debts').left, 5000);
+  assert.ok(r.fullFund > r.monthlyCosts * 2);
+
+  // Debts gone, funds full, super checked, lessons read: ready, with a sensible amount to start.
+  s.commitments = [];
+  s.afterpayBalance = 0;
+  s.balances.everyday = 400000;
+  s.pots.emergency = { target: 200000, balance: 2000000 };
+  const f = forecast(s, [], TODAY);
+  r = investReadiness(s, f, TODAY, { superChecked: true, lessonsDone: 7, lessonsTotal: 7 });
+  assert.deepEqual(r.steps.filter((x) => !x.done).map((x) => x.key), []);
+  assert.equal(r.ready, true);
+  assert.ok(r.suggest > 0 && r.suggest <= f.perPay);
+
+  // A big cost due within 3 years (like a visa fee) keeps you in "not yet".
+  s.commitments = [{ id: 'visa', name: 'Visa fee', amount: 450000, due: '2028-06-01', kind: 'Other', addedOn: TODAY }];
+  r = investReadiness(s, forecast(s, [], TODAY), TODAY, { superChecked: true, lessonsDone: 7, lessonsTotal: 7 });
+  assert.equal(r.next.key, 'big');
 });

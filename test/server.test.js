@@ -182,3 +182,22 @@ test('deleting is undoable, and a deleted Up purchase is never synced back in', 
   assert.equal((await call('POST', '/api/up/sync')).body.added, 0); // stays deleted
   assert.ok(!(await call('GET', '/api/transactions')).body.some((t) => t.name === 'Coles'));
 });
+
+test('an old copy (another tab or device) cannot overwrite newer changes', { skip }, async () => {
+  const first = await fetch(base + '/api/state');
+  const rev = first.headers.get('x-state-revision');
+  const state = await first.json();
+  assert.ok(rev);
+  const put = (body, revision) => fetch(base + '/api/state', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-State-Revision': revision }, body: JSON.stringify(body) });
+  // Phone saves first, based on the revision it loaded.
+  const phone = await put({ ...state, afterpayBalance: 111 }, rev);
+  assert.equal(phone.status, 200);
+  const newRev = (await phone.json()).revision;
+  assert.ok(newRev && newRev !== rev);
+  // Laptop still has the old copy: refused, and the phone's change survives.
+  const laptop = await put({ ...state, afterpayBalance: 999 }, rev);
+  assert.equal(laptop.status, 409);
+  assert.equal((await call('GET', '/api/state')).body.afterpayBalance, 111);
+  // With the latest revision it saves fine.
+  assert.equal((await put({ ...state, afterpayBalance: 222 }, newRev)).status, 200);
+});
