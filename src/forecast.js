@@ -89,11 +89,11 @@ export function buildCashflow(state, today, weeklySpending, extraToday = 0) {
     days.push(day);
     index.set(date, day);
   }
-  const add = (date, amount, name, kind) => {
+  const add = (date, amount, name, kind, id) => {
     const day = index.get(date < today ? today : date);
     if (!day) return;
     day.net += amount;
-    day.events.push({ name, amount, kind });
+    day.events.push({ name, amount, kind, id });
   };
 
   const paydays = state.pay?.amount > 0 && nextPayday(state.pay, today)
@@ -102,14 +102,14 @@ export function buildCashflow(state, today, weeklySpending, extraToday = 0) {
 
   for (const bill of state.bills) {
     if (bill.nextDue && isISODate(bill.nextDue)) {
-      for (const date of occurrences(bill.nextDue, bill.period, today, end)) add(date, -bill.amount, bill.name, 'bill');
+      for (const date of occurrences(bill.nextDue, bill.period, today, end)) add(date, -bill.amount, bill.name, 'bill', bill.id);
     } else {
       // No due date yet: assume it comes out evenly, a weekly share every 7 days from today.
       const weekly = perWeek(bill.amount, bill.period);
       for (let i = 6; i < HORIZON_DAYS; i += 7) add(addDays(today, i), -weekly, `${bill.name} (weekly share)`, 'bill-estimate');
     }
   }
-  for (const c of state.commitments) add(c.due && c.due >= today ? c.due : today, -c.amount, c.name, c.kind === 'Afterpay' ? 'afterpay' : 'commitment');
+  for (const c of state.commitments) add(c.due && c.due >= today ? c.due : today, -c.amount, c.name, c.kind === 'Afterpay' ? 'afterpay' : 'commitment', c.id);
   if (extraToday) add(today, -extraToday, 'Purchase being checked', 'purchase');
   return { days, paydays };
 }
@@ -324,7 +324,7 @@ export function paydayPlan(f, state) {
     for (const e of day.events) {
       if (e.kind === 'pay') continue;
       if (e.kind === 'bill-estimate') { undated += -e.amount; continue; }
-      (day.date === pay ? onPayday : beforeNext).push({ date: day.date, name: e.name, amount: -e.amount });
+      (day.date === pay ? onPayday : beforeNext).push({ date: day.date, name: e.name, amount: -e.amount, kind: e.kind, id: e.id });
     }
   }
   const spending = Math.round((f.spending.weekly * daysBetween(pay, next)) / 7);
@@ -333,7 +333,13 @@ export function paydayPlan(f, state) {
     ? { savings: alloc.savings, emergency: alloc.emergency, wants: alloc.wants }
     : suggestSplit(state, f.perPay);
   const sum = (list) => list.reduce((s, x) => s + x.amount, 0);
+  // One-off payments whose date has passed, or that have no date: did you pay them?
+  const today = f.series[0].date;
+  const dueAlready = state.commitments
+    .filter((c) => !c.due || c.due < today)
+    .map((c) => ({ id: c.id, name: c.name, amount: c.amount, due: c.due, kind: c.kind }));
   return {
+    dueAlready,
     pay,
     next,
     payAmount: state.pay.amount,

@@ -141,6 +141,8 @@ test('validation rejects dollars-with-decimals and bad shapes', () => {
   assert.deepEqual(validateState(s), []);
   assert.notDeepEqual(validateState({ ...s, plan: { savingsPerPay: 10.5, emergencyPerPay: 0 } }), []);
   assert.notDeepEqual(validateState({ ...s, version: 1 }), []);
+  assert.deepEqual(validateState({ ...s, pots: { ...s.pots, savings: { balance: 0, name: 'Home deposit' } } }), []);
+  assert.notDeepEqual(validateState({ ...s, pots: { ...s.pots, savings: { balance: 0, name: 'x'.repeat(41) } } }), []);
   assert.notDeepEqual(validateState({ ...s, budgets: [...s.budgets, { id: 'x', name: 'Groceries', icon: '', limit: 0 }] }), []);
   assert.deepEqual(validateTransaction({ date: TODAY, amount: 100, category: 'Other', name: 'x' }), []);
   assert.notDeepEqual(validateTransaction({ date: '9 Nov', amount: 100, category: 'Other', name: 'x' }), []);

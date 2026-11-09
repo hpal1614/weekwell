@@ -165,6 +165,13 @@ table.history tr.current td:first-child { font-weight: 700; }
 .upcoming summary { cursor: pointer; font-size: 12px; font-weight: 600; color: #46674f; padding: 6px 0; }
 
 /* payday plan */
+.payday-card { margin-top: 18px; border-color: #d8e5cf; }
+.payday-card .sectionhead { margin-bottom: 4px; }
+.itemright { display: inline-flex; align-items: center; gap: 8px; }
+.paidbtn { border: 1px solid #b9cfae; background: #eef4df; color: #34502a; border-radius: 7px; padding: 2px 7px; font-size: 10px; font-weight: 700; }
+.paidbtn:hover { background: #dcebc8; }
+.duecheck .items { margin-left: 0; }
+.duecheck .items li { color: #6b2d1c; }
 .payday { border: 1px solid #e3e6dc; border-radius: 14px; padding: 12px 14px; margin: 12px 0 4px; background: #fbfbf6; }
 .payday summary { cursor: pointer; font: 700 14px var(--display); }
 .payday .fieldhint { margin-top: 6px; }
@@ -269,7 +276,10 @@ table.history tr.current td:first-child { font-weight: 700; }
 @media (max-width: 620px) {
   .shell { padding: 15px 16px 86px; }
   .top-right .date, .avatar { display: none; }
-  .greeting { align-items: start; flex-direction: column; }
+  .greeting { align-items: start; flex-direction: column; margin-bottom: 14px; }
+  .greeting .eyebrow { display: none; }
+  .greeting h1 { font-size: 24px; margin-top: 0; }
+  .sectionhead { flex-wrap: wrap; }
   .weeknav { align-self: flex-end; margin-top: -4px; }
   .overview { padding: 21px 19px; }
   .week-tag { display: none; }

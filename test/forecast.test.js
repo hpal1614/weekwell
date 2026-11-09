@@ -179,5 +179,12 @@ test('payday plan: what is due on payday, what to keep until the next pay, and w
   assert.equal(p.committed, false);
   assert.ok(p.lowBeforePay === null || p.lowBeforePay.date < '2026-11-13');
   assert.equal(p.leftBeforeNext.date, '2026-11-26');
+  assert.deepEqual(p.dueAlready, []);
+  assert.equal(p.onPayday.find((x) => x.name === 'Water').id, 'w'); // one-offs carry their id for "Paid"
+  // An overdue or undated one-off shows up as "did you pay this?"
+  s.commitments.push({ id: 'old', name: 'Old invoice', amount: 1000, due: '2026-11-01', kind: 'Invoice', addedOn: '2026-10-01' });
+  s.commitments.push({ id: 'mate', name: 'Owe Sam', amount: 2700, due: null, kind: 'Friend', addedOn: TODAY });
+  const p2 = paydayPlan(forecast(s, [], TODAY), s);
+  assert.deepEqual(p2.dueAlready.map((x) => x.id), ['old', 'mate']);
   assert.ok(p.leftBeforeNext.amount >= s.pots.buffer.target);
 });
