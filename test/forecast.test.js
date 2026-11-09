@@ -192,9 +192,12 @@ test('payday plan: what is due on payday, what to keep until the next pay, and w
 test('money coming in: fill the emergency fund first, then 70/30 savings and wants', () => {
   const s = example();
   s.pots.emergency = { target: 200000, balance: 80547 };
-  assert.deepEqual(windfallSplit(s, 300000), { emergency: 119453, savings: 126383, wants: 54164 });
+  assert.deepEqual(windfallSplit(s, 300000), { keep: 0, emergency: 119453, savings: 126383, wants: 54164 });
+  // A shortfall ahead (e.g. a big fee) is covered first.
+  assert.deepEqual(windfallSplit(s, 300000, 100000), { keep: 100000, emergency: 119453, savings: 56383, wants: 24164 });
+  assert.deepEqual(windfallSplit(s, 50000, 100000), { keep: 50000, emergency: 0, savings: 0, wants: 0 });
   s.pots.emergency.balance = 250000; // already full
-  assert.deepEqual(windfallSplit(s, 10000), { emergency: 0, savings: 7000, wants: 3000 });
+  assert.deepEqual(windfallSplit(s, 10000), { keep: 0, emergency: 0, savings: 7000, wants: 3000 });
   // Expected money never changes the forecast before it arrives.
   const before = forecast(s, [], TODAY).perPay;
   s.incoming = [{ id: 'tax', name: 'Tax refund', amount: 300000, expectedOn: null }];
