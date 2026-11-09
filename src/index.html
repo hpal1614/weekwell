@@ -41,7 +41,7 @@
 
   <div class="layout">
     <main class="maincol">
-      <div class="greeting">
+      <div class="greeting" data-tab="home spending">
         <div>
           <div class="eyebrow">Your money, with a plan</div>
           <h1>Make this week<br>feel lighter.</h1>
@@ -53,7 +53,7 @@
         </div>
       </div>
 
-      <section class="overview">
+      <section class="overview" data-tab="home">
         <div class="overviewtop">
           <div>
             <div class="eyebrow">Take-home pay</div>
@@ -73,16 +73,18 @@
         <div class="allocation" id="allocation"></div>
       </section>
 
-      <section class="panel payday-card" id="paydayPanel" hidden></section>
-      <section class="panel forecast" id="forecastPanel" aria-live="polite"></section>
+      <section class="panel payday-card" id="paydayPanel" data-tab="home" hidden></section>
+      <section class="panel forecast" id="forecastPanel" data-tab="home" aria-live="polite"></section>
 
-      <div class="sectionhead">
-        <h2 id="spendPlanTitle">Your weekly spending plan</h2>
-        <button class="linkbtn" id="editCategories" type="button">EDIT CATEGORIES ↗</button>
+      <div data-tab="spending">
+        <div class="sectionhead">
+          <h2 id="spendPlanTitle">Your weekly spending plan</h2>
+          <button class="linkbtn" id="editCategories" type="button">EDIT CATEGORIES ↗</button>
+        </div>
+        <div class="budget-grid" id="budgetGrid"></div>
       </div>
-      <div class="budget-grid" id="budgetGrid"></div>
 
-      <section class="panel">
+      <section class="panel" data-tab="spending">
         <div class="sectionhead">
           <h2 id="txTitle">Spending this week</h2>
           <span class="pill" id="txTotal">$0.00</span>
@@ -90,7 +92,7 @@
         <div id="txList"></div>
       </section>
 
-      <section class="panel">
+      <section class="panel" data-tab="spending">
         <div class="sectionhead"><h2>History</h2><span class="muted small">compared with your current limits</span></div>
         <h3 class="subtitle">Last 8 weeks</h3>
         <div class="tablewrap"><table class="history" id="weekHistory"></table></div>
@@ -100,13 +102,13 @@
     </main>
 
     <aside class="side">
-      <section class="sidecard">
+      <section class="sidecard" data-tab="bills">
         <div class="subhead"><h2>Coming out regularly</h2><span class="pill" id="billPill">$0 / week</span></div>
         <div id="billList"></div>
         <button class="addrow" id="addBill" type="button">＋ Add a bill or subscription</button>
       </section>
 
-      <section class="sidecard">
+      <section class="sidecard" data-tab="bills">
         <div class="subhead"><h2>Upcoming commitments</h2><button class="pill pillbtn" id="afterpayPill" type="button" title="Change Afterpay balance">Afterpay $0</button></div>
         <div id="commitmentList"></div>
         <div class="billdue" id="commitmentSummary"></div>
@@ -114,19 +116,26 @@
         <button class="addrow" id="addAfterpay" type="button">＋ Add Afterpay purchase</button>
       </section>
 
-      <section class="sidecard goalcard">
+      <section class="sidecard goalcard" data-tab="savings">
         <div class="subhead"><h2>Your pots</h2><button class="pill pillbtn" id="updateBalances" type="button">Update balances</button></div>
         <div id="potList"></div>
       </section>
 
-      <section class="sidecard">
+      <section class="sidecard" data-tab="savings">
+        <div class="subhead"><h2>Money coming in</h2><span class="pill" id="incomingPill">not counted yet</span></div>
+        <p class="sidecopy">Money you're expecting, like a tax refund. It isn't counted in the plan until it actually arrives, so the plan never relies on it.</p>
+        <div id="incomingList"></div>
+        <button class="addrow" id="addIncoming" type="button">＋ Add money you're expecting</button>
+      </section>
+
+      <section class="sidecard" data-tab="savings">
         <div class="subhead"><h2>Wants</h2><span class="pill" id="wantsPill">$0 / pay</span></div>
         <p class="sidecopy">Things you'd like to buy. Each waits a cooling-off period, then gets a date when it's paid for without touching savings.</p>
         <div id="wantList"></div>
         <button class="addrow" id="addWant" type="button">＋ Add something you want</button>
       </section>
 
-      <section class="sidecard tipcard">
+      <section class="sidecard tipcard" data-tab="home">
         <h2><span class="tipstar">✳</span> A gentle nudge</h2>
         <p id="tipText">Set bills aside on payday. What stays is yours to spend, without guessing.</p>
       </section>
@@ -134,6 +143,14 @@
   </div>
 </div>
 
+
+<nav class="tabbar" id="tabbar" aria-label="Sections">
+  <button type="button" data-goto="home" aria-label="Home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z"/></svg><span>Home</span></button>
+  <button type="button" data-goto="spending" aria-label="Spending"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg><span>Spending</span></button>
+  <button type="button" class="tabadd" id="tabAdd" aria-label="Log spending"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+  <button type="button" data-goto="bills" aria-label="Bills"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10v18l-2.5-1.6L12 21l-2.5-1.6L7 21zM10 8h4M10 12h4"/></svg><span>Bills</span></button>
+  <button type="button" data-goto="savings" aria-label="Savings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 11a7 6 0 0 1 13.5-1.8H21v4.3l-2 .7-1.2 2.8H16v2h-3v-1.6h-3V19H7v-2.4A6 6 0 0 1 5 11zM14.5 9.5h.01"/></svg><span>Savings</span></button>
+</nav>
 <button class="fab" id="addExpense" type="button"><span aria-hidden="true">＋</span> Log spending</button>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 

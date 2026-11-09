@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { defaultState } from '../src/engine.js';
 import {
   addMonths, allocation, buildCashflow, canBuyNow, coolingDays, forecast, maxSafePerPay, nextPayday,
-  occurrences, paydayPlan, simulate, suggestSplit, wantsTimeline,
+  occurrences, paydayPlan, simulate, suggestSplit, wantsTimeline, windfallSplit,
 } from '../src/forecast.js';
 
 const TODAY = '2026-11-09';
@@ -187,4 +187,16 @@ test('payday plan: what is due on payday, what to keep until the next pay, and w
   const p2 = paydayPlan(forecast(s, [], TODAY), s);
   assert.deepEqual(p2.dueAlready.map((x) => x.id), ['old', 'mate']);
   assert.ok(p.leftBeforeNext.amount >= s.pots.buffer.target);
+});
+
+test('money coming in: fill the emergency fund first, then 70/30 savings and wants', () => {
+  const s = example();
+  s.pots.emergency = { target: 200000, balance: 80547 };
+  assert.deepEqual(windfallSplit(s, 300000), { emergency: 119453, savings: 126383, wants: 54164 });
+  s.pots.emergency.balance = 250000; // already full
+  assert.deepEqual(windfallSplit(s, 10000), { emergency: 0, savings: 7000, wants: 3000 });
+  // Expected money never changes the forecast before it arrives.
+  const before = forecast(s, [], TODAY).perPay;
+  s.incoming = [{ id: 'tax', name: 'Tax refund', amount: 300000, expectedOn: null }];
+  assert.equal(forecast(s, [], TODAY).perPay, before);
 });
