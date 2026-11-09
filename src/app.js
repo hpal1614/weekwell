@@ -17,6 +17,9 @@ let transactions = [];       // newest first
 let loadedFrom = null;       // earliest date we have fetched transactions for
 let viewOffset = 0;          // 0 = this week, -1 = last week …
 let saveQueue = Promise.resolve();
+let up = { configured: false, accounts: null, syncing: false, lastSync: null };
+
+const normaliseMerchant = (text) => String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
 // ---------- helpers ----------
 
@@ -27,6 +30,57 @@ function viewedRange() {
   return { start, end: addDays(start, 6) };
 }
 function budgetIcon(name) { return state.budgets.find((b) => b.name === name)?.icon || '•'; }
+
+const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+/** A little burst of confetti plus a message, for the good moments. */
+function celebrate(message) {
+  toast(message);
+  if (reducedMotion()) return;
+  const colours = ['#c9f36a', '#234c39', '#f8b98f', '#9482b2', '#6f8f58', '#f2d06b'];
+  const originX = window.innerWidth / 2;
+  const originY = window.innerHeight - 120;
+  for (let i = 0; i < 26; i++) {
+    const bit = document.createElement('i');
+    bit.className = 'confetti';
+    bit.style.background = colours[i % colours.length];
+    bit.style.left = `${originX}px`;
+    bit.style.top = `${originY}px`;
+    document.body.append(bit);
+    const angle = (Math.random() * Math.PI) - Math.PI; // upwards fan
+    const dist = 120 + Math.random() * 180;
+    bit.animate([
+      { transform: 'translate(0, 0) rotate(0deg)', opacity: 1 },
+      { transform: `translate(${Math.cos(angle) * dist}px, ${Math.sin(angle) * dist}px) rotate(${360 + Math.random() * 360}deg)`, opacity: 1, offset: 0.6 },
+      { transform: `translate(${Math.cos(angle) * dist * 1.2}px, ${Math.sin(angle) * dist + 140}px) rotate(${720}deg)`, opacity: 0 },
+    ], { duration: 1100 + Math.random() * 500, easing: 'cubic-bezier(.2,.8,.2,1)' }).onfinish = () => bit.remove();
+  }
+}
+
+/** Numbers glide to their new value instead of jumping. */
+const shownValues = new Map();
+function countUp(el, cents, format = formatMoney) {
+  const key = el.dataset.count;
+  const from = shownValues.has(key) ? shownValues.get(key) : 0;
+  shownValues.set(key, cents);
+  if (reducedMotion() || from === cents) { el.textContent = format(cents); return; }
+  const start = performance.now();
+  const dur = 700;
+  const step = (t) => {
+    const k = Math.min(1, (t - start) / dur);
+    const eased = 1 - (1 - k) ** 3;
+    el.textContent = format(Math.round(from + (cents - from) * eased));
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+function greet(name) {
+  const h = new Date().getHours();
+  const part = h < 5 ? 'Up late' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  return name ? `${part}, ${name.split(' ')[0]}` : part;
+}
+let userName = '';
 
 function toast(message) {
   $('toast').textContent = message;
@@ -76,7 +130,7 @@ function render() {
   $('payPeriod').value = state.pay.period;
 
   // week navigation
-  $('weekLabel').textContent = viewOffset === 0 ? `THIS WEEK · ${weekLabel(range).toUpperCase()}` : weekLabel(range).toUpperCase();
+  $('weekLabel').textContent = viewOffset === 0 ? `This week · ${weekLabel(range)}` : weekLabel(range);
   $('nextWeek').disabled = viewOffset >= 0;
   $('spendPlanTitle').textContent = viewOffset === 0 ? 'Your weekly spending plan' : `Spending plan · ${weekLabel(range)}`;
 
@@ -85,7 +139,7 @@ function render() {
     const spent = byName.get(b.name) || 0;
     const pct = b.limit > 0 ? Math.min(100, (spent / b.limit) * 100) : spent > 0 ? 100 : 0;
     const over = spent > b.limit;
-    const note = over ? `OVER BY ${formatMoney(spent - b.limit)}` : b.limit > 0 ? `${formatMoney(b.limit - spent)} LEFT` : 'NO LIMIT SET';
+    const note = over ? `Over by ${formatMoney(spent - b.limit)}` : b.limit > 0 ? `${formatMoney(b.limit - spent)} left` : 'No limit set';
     return `<article class="budget-card tone-${i % 4}">
       <div class="cardtop"><span class="cat-icon">${esc(b.icon)}</span><span class="spent">${formatMoney(spent)} spent</span></div>
       <h3>${esc(b.name)}</h3>
@@ -102,7 +156,7 @@ function render() {
   $('txList').innerHTML = weekTx.length
     ? weekTx.map((t) => `<div class="txrow">
         <span class="txicon">${esc(budgetIcon(t.category))}</span>
-        <div><div class="txname">${esc(t.name)}</div><div class="txmeta">${esc(t.category)} · ${longDate(t.date)}</div></div>
+        <div><div class="txname">${esc(t.name)}</div><div class="txmeta">${esc(t.category)} · ${longDate(t.date)}${t.source === 'up' ? ' <span class="srcbadge" title="Added automatically from Up">Up</span>' : ''}</div></div>
         <span class="txamt">−${formatMoney(t.amount)}</span>
         <span class="rowactions"><button class="iconbtn" data-edit-tx="${esc(t.id)}" title="Edit" aria-label="Edit ${esc(t.name)}">✎</button><button class="iconbtn" data-del-tx="${esc(t.id)}" title="Delete" aria-label="Delete ${esc(t.name)}">×</button></span>
       </div>`).join('')
@@ -122,19 +176,24 @@ function render() {
 // The four numbers on the green card. Once the forecast is set up they come from it
 // (what matters day to day); before that, from the simple weekly plan.
 function renderSummary(plan, f, now) {
-  const tile = (label, value, hint, { alert = false, negative = false, button = false } = {}) => `<div><label>${label}</label>${button
-    ? `<button class="editable" type="button" data-open="plan" title="Change your savings plan">${value}</button>`
-    : `<strong class="${negative ? 'negative' : ''}">${value}</strong>`}<div class="microhint ${alert ? 'alert' : ''}">${hint}</div></div>`;
+  // value: a string, or { cents } to have the number glide to its new value.
+  const tile = (label, value, hint, { alert = false, negative = false, button = false } = {}) => {
+    const shown = typeof value === 'object' ? `<span data-count="${esc(label)}" data-cents="${value.cents}">${formatMoney(shownValues.get(label) ?? 0)}</span>` : value;
+    return `<div><label>${label}</label>${button
+      ? `<button class="editable" type="button" data-open="plan" title="Change your savings plan">${shown}</button>`
+      : `<strong class="${negative ? 'negative' : ''}">${shown}</strong>`}<div class="microhint ${alert ? 'alert' : ''}">${hint}</div></div>`;
+  };
   let html;
   if (f.perPay !== undefined) {
     const days = daysBetween(now, f.nextPay);
     const committed = allocation(state, f.perPay);
     html = [
       tile('Next payday', shortDate(f.nextPay), days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`),
-      tile('Safe to save', formatMoney(f.perPay), committed.committed ? 'each pay · tap to change split' : 'each pay · tap to choose split', { button: true }),
-      tile('Lowest point ahead', formatMoney(f.min), `${shortDate(f.minDate)}${f.status === 'short' ? ' · tight' : ''}`, { alert: f.status === 'short', negative: f.min < 0 }),
-      tile('Everyday spending', formatMoney(plan.spending), 'per week · your limits'),
+      tile('Safe to save', { cents: f.perPay }, committed.committed ? 'each pay · tap to change split' : 'each pay · tap to choose split', { button: true }),
+      tile('Lowest point ahead', { cents: f.min }, `${shortDate(f.minDate)}${f.status === 'short' ? ' · tight' : ''}`, { alert: f.status === 'short', negative: f.min < 0 }),
+      tile('Everyday spending', { cents: plan.spending }, 'per week · your limits'),
     ];
+    $('helloSub').textContent = `${days === 0 ? 'Payday is today' : days === 1 ? 'Payday is tomorrow' : `Payday in ${days} days`} · ${f.perPay > 0 ? `${formatMoney(f.perPay)} safe to save` : 'everything’s covered, no spare to save yet'}`;
   } else {
     html = [
       tile('Bills + commitments', formatMoney(plan.bills + plan.commitments), plan.overdue ? `incl. ${formatMoney(plan.overdue)} overdue` : 'weekly + due soon', { alert: plan.overdue > 0 }),
@@ -144,6 +203,9 @@ function renderSummary(plan, f, now) {
     ];
   }
   $('allocation').innerHTML = html.join('');
+  $('hello').textContent = greet(userName);
+  if (f.perPay === undefined) $('helloSub').textContent = 'Let’s finish setting up your plan.';
+  for (const el of $('allocation').querySelectorAll('[data-cents]')) countUp(el, Number(el.dataset.cents));
 }
 
 function renderHistory(now) {
@@ -181,7 +243,7 @@ function renderSide(plan, now) {
   $('billList').innerHTML = state.bills.length
     ? state.bills.map((b) => `<div class="billrow">
         <span class="billicon">${esc(b.icon || '↻')}</span>
-        <button class="billmain" data-edit-bill="${esc(b.id)}" title="Edit"><div class="billname">${esc(b.name)}</div><div class="billdue">${PERIOD_LABEL[b.period].toUpperCase()} · ${b.nextDue ? `NEXT ${shortDate(nextBillDate(b, now)).toUpperCase()}` : 'ADD DUE DATE'} · ${formatMoney(perWeek(b.amount, b.period))}/WK</div></button>
+        <button class="billmain" data-edit-bill="${esc(b.id)}" title="Edit"><div class="billname">${esc(b.name)}</div><div class="billdue">${PERIOD_LABEL[b.period]} · ${b.nextDue ? `next ${shortDate(nextBillDate(b, now))}` : 'add a due date'} · ${formatMoney(perWeek(b.amount, b.period))}/wk</div></button>
         <span class="billcost">${formatMoney(b.amount)}<button class="iconbtn" data-del-bill="${esc(b.id)}" title="Remove" aria-label="Remove ${esc(b.name)}">×</button></span>
       </div>`).join('')
     : '<div class="empty">No bills added yet. Add rent, subscriptions and regular payments.</div>';
@@ -191,9 +253,9 @@ function renderSide(plan, now) {
   $('commitmentList').innerHTML = sorted.length
     ? sorted.map((c) => {
         const need = commitmentNeed(c, now);
-        const when = need.status === 'overdue' ? `OVERDUE SINCE ${shortDate(c.due).toUpperCase()} · NEEDED NOW`
-          : need.status === 'now' ? 'NO DUE DATE · HOLD THE FULL AMOUNT NOW'
-          : `DUE ${longDate(c.due).toUpperCase()} · SET ASIDE ${formatMoney(need.perWeek)}/WK${need.savedSoFar ? ` · ≈${formatMoney(need.savedSoFar)} PUT ASIDE SO FAR` : ''}`;
+        const when = need.status === 'overdue' ? `Overdue since ${shortDate(c.due)} · needed now`
+          : need.status === 'now' ? 'No due date · hold the full amount now'
+          : `Due ${longDate(c.due)} · set aside ${formatMoney(need.perWeek)}/wk${need.savedSoFar ? ` · ≈${formatMoney(need.savedSoFar)} put aside so far` : ''}`;
         return `<div class="billrow">
           <span class="billicon">${c.kind === 'Afterpay' ? '↗' : c.kind === 'Friend' ? '☺' : '◷'}</span>
           <button class="billmain" data-edit-com="${esc(c.id)}" title="Edit"><div class="billname">${esc(c.name)}${c.kind && c.kind !== c.name ? ` <span class="muted">· ${esc(c.kind)}</span>` : ''}</div><div class="billdue ${need.status === 'overdue' ? 'overdue' : ''}">${when}</div></button>
@@ -249,7 +311,7 @@ function renderForecast(f, now) {
   $('paydayPanel').innerHTML = paydayHtml;
   $('paydayPanel').hidden = !paydayHtml;
   const panel = $('forecastPanel');
-  const head = `<div class="sectionhead"><h2>Looking ahead · next 12 months</h2><button class="linkbtn" data-open="balances">UPDATE BALANCES ↗</button></div>`;
+  const head = `<div class="sectionhead"><h2>Looking ahead · next 12 months</h2><button class="linkbtn" data-open="balances">Update balances</button></div>`;
   if (f.status === 'needs-pay') { panel.innerHTML = `${head}<div class="notice info">Enter your take-home pay above to see what's safe to save.</div>`; return; }
   if (f.status === 'needs-payday') { panel.innerHTML = `${head}<div class="notice info">When is your next payday? The forecast needs it to know when money arrives.<br><button class="inlinebtn" data-open="settings">Set next payday</button></div>`; return; }
   if (f.status === 'needs-balances') {
@@ -270,7 +332,7 @@ function renderForecast(f, now) {
         <span class="chip">Locked savings <b>${formatMoney(alloc.savings)}</b></span>
         ${alloc.emergency ? `<span class="chip">Emergency fund <b>${formatMoney(alloc.emergency)}</b></span>` : emergencyFull(state) ? '<span class="chip">Emergency fund <b>full ✓</b></span>' : ''}
         <span class="chip">Wants <b>${formatMoney(alloc.wants)}</b></span>
-        <button class="linkbtn" data-open="plan">CHANGE</button></div>
+        <button class="linkbtn" data-open="plan">Change</button></div>
        <div class="fieldhint">From CommBank to your Up Savers, once your pay lands. Then update balances.</div>`;
   panel.innerHTML = `${head}
     <div class="stats">
@@ -304,7 +366,7 @@ function renderPaydayPlan(f) {
     step(++n, `Everyday spending until ${shortDate(p.next)} (groceries, transport, eating out…)`, p.spending),
     step(++n, p.committed ? 'Move to your Up Savers' : 'Move to your Up Savers (suggested)', p.movesTotal,
       p.movesTotal > 0
-        ? `<ul class="items"><li><span>${esc(potName('savings'))}</span><b>${formatMoney(p.moves.savings)}</b></li>${p.moves.emergency ? `<li><span>${esc(potName('emergency'))}</span><b>${formatMoney(p.moves.emergency)}</b></li>` : ''}${p.moves.wants ? `<li><span>Wants</span><b>${formatMoney(p.moves.wants)}</b></li>` : ''}</ul>${p.committed ? '' : '<button class="linkbtn" data-open="plan">CHOOSE MY SPLIT</button>'}`
+        ? `<ul class="items"><li><span>${esc(potName('savings'))}</span><b>${formatMoney(p.moves.savings)}</b></li>${p.moves.emergency ? `<li><span>${esc(potName('emergency'))}</span><b>${formatMoney(p.moves.emergency)}</b></li>` : ''}${p.moves.wants ? `<li><span>Wants</span><b>${formatMoney(p.moves.wants)}</b></li>` : ''}</ul>${p.committed ? '' : '<button class="linkbtn" data-open="plan">Choose my split</button>'}`
         : '<div class="fieldhint">Nothing is safe to move this pay. That’s OK: the plan covers everything else first.</div>'),
     p.leftBeforeNext ? step(++n, `Left over on ${shortDate(p.leftBeforeNext.date)}, the night before your next pay`, p.leftBeforeNext.amount, `<div class="fieldhint">${p.leftBeforeNext.amount >= f.buffer ? 'That’s your safety buffer, untouched.' : `Below your ${formatMoney(f.buffer)} buffer. Go easy, or move less to your Savers this time.`}</div>`) : '',
     step(++n, 'Then tap Update balances with what’s really in your accounts', null, '<button class="inlinebtn light" data-open="balances">Update balances</button>'),
@@ -375,13 +437,13 @@ function renderPots(f) {
   const alloc = f.perPay !== undefined ? allocation(state, f.perPay) : null;
   const updated = state.balances.updatedOn ? `updated ${shortDate(state.balances.updatedOn)}` : 'not entered yet';
   $('potList').innerHTML = `
-    <div class="potrow"><div class="pottop"><div><div class="potname">Everyday</div><div class="potwhere">COMMBANK + UP SPENDING · ${updated.toUpperCase()}</div></div><span class="potamt">${formatMoney(state.balances.everyday)}</span></div></div>
-    <div class="potrow"><div class="pottop"><div><div class="potname">${esc(potName('buffer'))}</div><div class="potwhere">UP SAVER · OK TO USE FOR BILLS & SMALL SURPRISES</div></div><span class="potamt">${formatMoney(p.buffer.balance)}</span></div>
+    <div class="potrow"><div class="pottop"><div><div class="potname">Everyday</div><div class="potwhere">CommBank + Up Spending · ${updated}</div></div><span class="potamt">${formatMoney(state.balances.everyday)}</span></div></div>
+    <div class="potrow"><div class="pottop"><div><div class="potname">${esc(potName('buffer'))}</div><div class="potwhere">Kept in your everyday account · OK for bills & small surprises</div></div><span class="potamt">${formatMoney(p.buffer.balance)}</span></div>
       <div class="potnote">Buffer to keep: ${formatMoney(p.buffer.target)}</div></div>
-    <div class="potrow"><div class="pottop"><div><div class="potname">${esc(potName('emergency'))}</div><div class="potwhere">UP SAVER · REAL EMERGENCIES ONLY</div></div><span class="potamt">${formatMoney(p.emergency.balance)} / ${formatMoney(p.emergency.target)}</span></div>
+    <div class="potrow"><div class="pottop"><div><div class="potname">${esc(potName('emergency'))}</div><div class="potwhere">Its own account · real emergencies only</div></div><span class="potamt">${formatMoney(p.emergency.balance)} / ${formatMoney(p.emergency.target)}</span></div>
       ${meter(p.emergency.balance, p.emergency.target)}
       <div class="potnote">${emergencyFull(state) ? 'Full ✓ Its share of each pay now goes to savings and wants.' : alloc && alloc.emergency ? `+${formatMoney(alloc.emergency)} each pay until full.` : 'Not being topped up yet. Choose your split in the forecast.'}</div></div>
-    <div class="potrow"><div class="pottop"><div><div class="potname">${esc(potName('savings'))}</div><div class="potwhere">UP SAVER · NEVER WITHDRAW</div></div><span class="potamt">${formatMoney(p.savings.balance)}</span></div>
+    <div class="potrow"><div class="pottop"><div><div class="potname">${esc(potName('savings'))}</div><div class="potwhere">Up Saver · never withdraw, keeps the bonus rate</div></div><span class="potamt">${formatMoney(p.savings.balance)}</span></div>
       <div class="potnote">${alloc && alloc.savings ? `+${formatMoney(alloc.savings)} each pay. Untouched, it keeps Up's bonus rate.` : 'Choose how much goes here each pay in the forecast.'}</div></div>`;
 }
 
@@ -394,7 +456,7 @@ function renderIncoming() {
     const line = (name, amount) => (amount ? `<li><span>${esc(name)}</span><b>${formatMoney(amount)}</b></li>` : '');
     return `<div class="incomingrow">
       <div class="wanttop"><button class="wantname" data-edit-incoming="${esc(m.id)}" title="Edit">${esc(m.name)}</button><span class="potamt">${formatMoney(m.amount)}</span></div>
-      <div class="wantstatus">${m.expectedOn ? `EXPECTED AROUND ${longDate(m.expectedOn).toUpperCase()}` : 'DATE NOT KNOWN YET'} · NOT IN THE PLAN UNTIL IT ARRIVES</div>
+      <div class="wantstatus">${m.expectedOn ? `Expected around ${longDate(m.expectedOn)}` : 'Date not known yet'} · not in the plan until it arrives</div>
       <div class="potnote">When it lands, move it like this:</div>
       <ul class="items">${line(`${potName('emergency')} (fills it to ${formatMoney(state.pots.emergency.target)})`, w.emergency)}${line(potName('savings'), w.savings)}${line('Wants', w.wants)}</ul>
       <div class="wantactions">
@@ -433,11 +495,11 @@ function renderWants(f, now) {
     const cooling = w.coolUntil > now;
     const ready = timeline.get(w.id);
     let status;
-    if (cooling) status = `COOLING OFF UNTIL ${shortDate(w.coolUntil).toUpperCase()} · STILL WANT IT THEN?`;
-    else if (ready === 'now') status = '<span class="good">FULLY SAVED ✓</span>';
-    else if (ready) status = `SAVED BY ${longDate(ready).toUpperCase()} AT ${formatMoney(wantsPerPay)}/PAY`;
-    else if (f.status && f.status.startsWith('needs')) status = 'FINISH SETTING UP THE FORECAST TO GET A DATE';
-    else status = 'NO WANTS MONEY IN YOUR SPLIT YET';
+    if (cooling) status = `Cooling off until ${shortDate(w.coolUntil)} · still want it then?`;
+    else if (ready === 'now') status = '<span class="good">Fully saved ✓</span>';
+    else if (ready) status = `Saved by ${longDate(ready)} at ${formatMoney(wantsPerPay)}/pay`;
+    else if (f.status && f.status.startsWith('needs')) status = 'Finish setting up the forecast to get a date';
+    else status = 'No wants money in your split yet';
     return `<div class="wantrow">
       <div class="wanttop"><button class="wantname" data-edit-want="${esc(w.id)}" title="Edit">${i + 1}. ${esc(w.name)}</button><span class="potamt">${formatMoney(w.saved)} / ${formatMoney(w.price)}</span></div>
       ${meter(w.saved, w.price)}
@@ -540,6 +602,11 @@ function spendingForm(existing) {
       if (v.date > today()) return 'Date can’t be in the future.';
       const entry = { name: v.name, amount: v.amount, category: v.category, date: v.date };
       if (existing) {
+        if (existing.source === 'up' && existing.category !== entry.category) {
+          // Remember the correction so future purchases from this shop go to the same category.
+          state.merchantRules = { ...(state.merchantRules || {}), [normaliseMerchant(existing.name)]: entry.category };
+          saveState();
+        }
         const saved = await api.updateTransaction(existing.id, entry);
         transactions = transactions.map((t) => (t.id === existing.id ? saved : t)).sort(byNewest);
         toast('Spending updated.');
@@ -639,18 +706,20 @@ function spendingWeekly() {
 }
 
 function balancesForm() {
+  const fromUp = (name) => up.accounts?.find((a) => a.type === 'SAVER' && normaliseMerchant(a.name) === normaliseMerchant(name));
+  const upLine = up.accounts ? `From Up just now: ${up.accounts.map((a) => `${a.name} ${formatMoney(a.balance)}`).join(' · ')}. Savers with the same name as your pots are filled in for you.` : '';
   openForm({
     title: 'Your balances right now',
     submitLabel: 'Save balances',
     fields: [
       { name: 'everyday', label: 'Everyday: CommBank + Up Spending together', type: 'money', value: state.balances.everyday, required: true, hint: 'Everything you can spend or pay bills from today, not counting Up Savers.' },
-      { name: 'buffer', label: `${potName('buffer')} Saver`, type: 'money', value: state.pots.buffer.balance, half: true },
+      { name: 'buffer', label: `${potName('buffer')} Saver`, type: 'money', value: fromUp(potName('buffer'))?.balance ?? state.pots.buffer.balance, half: true },
       { name: 'bufferTarget', label: 'Buffer to always keep', type: 'money', value: state.pots.buffer.target, half: true },
-      { name: 'emergency', label: `${potName('emergency')} Saver`, type: 'money', value: state.pots.emergency.balance, half: true },
+      { name: 'emergency', label: `${potName('emergency')} Saver`, type: 'money', value: fromUp(potName('emergency'))?.balance ?? state.pots.emergency.balance, half: true },
       { name: 'emergencyTarget', label: 'Emergency fund goal', type: 'money', value: state.pots.emergency.target, half: true },
-      { name: 'savings', label: `${potName('savings')} Saver`, type: 'money', value: state.pots.savings.balance },
+      { name: 'savings', label: `${potName('savings')} Saver`, type: 'money', value: fromUp(potName('savings'))?.balance ?? state.pots.savings.balance },
     ],
-    note: 'Up Saver you have today? If it’s your only savings, count it as the emergency fund. A new Saver for locked savings starts at $0.',
+    note: upLine || 'Up Saver you have today? If it’s your only savings, count it as the emergency fund. A new Saver for locked savings starts at $0.',
     onSubmit: (v) => {
       state.balances = { everyday: v.everyday, updatedOn: today() };
       state.pots.buffer = { ...state.pots.buffer, balance: v.buffer, target: v.bufferTarget };
@@ -871,6 +940,9 @@ function wireEvents() {
   $('addCommitment').onclick = () => commitmentForm();
   $('addWant').onclick = () => wantForm();
   $('addIncoming').onclick = () => incomingForm();
+  $('syncUp').onclick = () => syncUp();
+  // Coming back to the app (e.g. from the home screen) pulls in new Up purchases.
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && up.configured && (!up.lastSync || Date.now() - up.lastSync > 60000)) syncUp({ quiet: true }); });
   $('tabAdd').onclick = () => spendingForm();
   for (const b of document.querySelectorAll('[data-goto]')) b.onclick = () => setTab(b.dataset.goto, true);
   window.addEventListener('hashchange', () => setTab(location.hash.slice(1), false));
@@ -909,7 +981,7 @@ function wireEvents() {
       if (c.kind === 'Afterpay') state.afterpayBalance = Math.max(0, state.afterpayBalance - c.amount);
       state.commitments = state.commitments.filter((x) => x !== c);
       saveState();
-      toast('Marked paid.');
+      celebrate(`Paid ✓ ${c.name.split(' (')[0]}. One less thing to think about.`);
     }
     if (d.delCom) {
       const c = find(state.commitments, d.delCom);
@@ -940,7 +1012,7 @@ function wireEvents() {
       if (!w || !confirm(`Mark “${w.name}” as bought and remove it from wants?`)) return;
       state.wants = state.wants.filter((x) => x !== w);
       saveState();
-      toast(w.saved >= w.price ? 'Enjoy it. Paid for without touching savings.' : 'Bought. Update your balances so the forecast knows.');
+      if (w.saved >= w.price) celebrate('Enjoy it! Paid for without touching savings.'); else toast('Bought. Update your balances so the forecast knows.');
     }
     if (d.delWant) {
       const w = find(state.wants, d.delWant);
@@ -962,6 +1034,13 @@ function setTab(name, fromTap) {
   if (fromTap) {
     if (location.hash.slice(1) !== tab) history.replaceState(null, '', tab === 'home' ? location.pathname : `#${tab}`);
     window.scrollTo({ top: 0 });
+    // Slide the new tab's cards in, one after another.
+    document.querySelectorAll(`[data-tab~="${tab}"]`).forEach((el, i) => {
+      el.classList.remove('enter');
+      void el.offsetWidth;
+      el.style.setProperty('--d', `${i * 60}ms`);
+      el.classList.add('enter');
+    });
   }
   try { localStorage.setItem('weekwell:tab', tab); } catch { /* storage unavailable */ }
   if (fromTap && tab === 'home' && state) render(); // redraw the chart at its real width
@@ -975,6 +1054,30 @@ function initialTab() {
 
 // ---------- start ----------
 
+async function syncUp({ quiet = false } = {}) {
+  if (!up.configured || up.syncing) return;
+  up.syncing = true;
+  $('syncUp').classList.add('busy');
+  $('syncText').textContent = 'Syncing…';
+  try {
+    const r = await api.upSync();
+    up.accounts = r.accounts || up.accounts;
+    up.lastSync = new Date();
+    if (r.added) {
+      const fresh = await api.listTransactions(loadedFrom);
+      transactions = fresh.sort(byNewest);
+      render();
+      celebrate(`${r.added} new ${r.added === 1 ? 'purchase' : 'purchases'} from Up`);
+    } else if (!quiet) toast('Up is in sync. Nothing new.');
+  } catch (error) {
+    if (!quiet || error.status === 401) toast(error.message);
+  } finally {
+    up.syncing = false;
+    $('syncUp').classList.remove('busy');
+    $('syncText').textContent = up.lastSync ? `Synced ${up.lastSync.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}` : 'Sync Up';
+  }
+}
+
 async function loadEverything() {
   state = await api.getState();
   const from = addDays(weekStart(today(), state.weekStartsOn), -7 * (HISTORY_WEEKS - 1));
@@ -982,6 +1085,11 @@ async function loadEverything() {
   loadedFrom = from;
   viewOffset = 0;
   render();
+  try {
+    up.configured = (await api.upStatus()).configured;
+    $('syncUp').hidden = !up.configured;
+    if (up.configured) syncUp({ quiet: true });
+  } catch { /* Up sync is optional */ }
 }
 
 // ---------- sign in ----------
@@ -1035,6 +1143,7 @@ async function boot() {
     try {
       const me = await api.me();
       $('avatar').textContent = (me.name || me.email || '?').trim().charAt(0).toUpperCase();
+      userName = me.name || '';
       $('signOut').hidden = false;
     } catch (error) {
       if (error.status === 401) return showGoogleSignIn(config.clientId);
@@ -1058,7 +1167,7 @@ if ('serviceWorker' in navigator && location.hostname !== 'localhost' && locatio
   navigator.serviceWorker.register('/sw.js').catch(() => { /* app still works without it */ });
 }
 
-$('today').textContent = longDate(today()).toUpperCase();
+$('today').textContent = longDate(today());
 setTab(initialTab(), false);
 wireEvents();
 boot();

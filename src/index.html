@@ -44,7 +44,8 @@
       <div class="greeting" data-tab="home spending">
         <div>
           <div class="eyebrow">Your money, with a plan</div>
-          <h1>Make this week<br>feel lighter.</h1>
+          <h1 id="hello">Make this week feel lighter.</h1>
+          <div class="hello-sub" id="helloSub"></div>
         </div>
         <div class="weeknav" aria-label="Choose week">
           <button id="prevWeek" type="button" aria-label="Previous week">‹</button>
@@ -79,7 +80,7 @@
       <div data-tab="spending">
         <div class="sectionhead">
           <h2 id="spendPlanTitle">Your weekly spending plan</h2>
-          <button class="linkbtn" id="editCategories" type="button">EDIT CATEGORIES ↗</button>
+          <button class="linkbtn" id="editCategories" type="button">Edit categories</button>
         </div>
         <div class="budget-grid" id="budgetGrid"></div>
       </div>
@@ -87,7 +88,7 @@
       <section class="panel" data-tab="spending">
         <div class="sectionhead">
           <h2 id="txTitle">Spending this week</h2>
-          <span class="pill" id="txTotal">$0.00</span>
+          <span class="txhead-right"><button class="syncbtn" id="syncUp" type="button" hidden><span class="syncicon" aria-hidden="true">↻</span> <span id="syncText">Sync Up</span></button><span class="pill" id="txTotal">$0.00</span></span>
         </div>
         <div id="txList"></div>
       </section>
