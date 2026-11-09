@@ -1,0 +1,17 @@
+{
+  "name": "weekwell",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "db:migrate": "node scripts/migrate.mjs",
+    "start": "npm run db:migrate && node server.js"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
+    "dotenv": "^16.4.7",
+    "express": "^5.1.0"
+  }
+}
+
