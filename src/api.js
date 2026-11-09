@@ -28,6 +28,7 @@ export const api = {
   addTransaction: (t) => request('POST', '/api/transactions', t),
   updateTransaction: (id, t) => request('PUT', `/api/transactions/${encodeURIComponent(id)}`, t),
   deleteTransaction: (id) => request('DELETE', `/api/transactions/${encodeURIComponent(id)}`),
+  restoreTransaction: (id) => request('POST', `/api/transactions/${encodeURIComponent(id)}/restore`),
   renameCategory: (from, to) => request('POST', '/api/transactions/rename-category', { from, to }),
   upStatus: () => request('GET', '/api/up/status'),
   upSync: () => request('POST', '/api/up/sync'),
