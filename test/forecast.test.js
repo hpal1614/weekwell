@@ -3,8 +3,41 @@ import assert from 'node:assert/strict';
 import { defaultState } from '../src/engine.js';
 import {
   addMonths, allocation, buildCashflow, canBuyNow, coolingDays, forecast, maxSafePerPay, nextPayday,
-  investReadiness, occurrences, paydayPlan, simulate, suggestSplit, wantsTimeline, windfallSplit,
+  checkinDue, investReadiness, monthReview, netWorth, occurrences, paydayPlan, simulate, suggestSplit, wantsTimeline, windfallSplit,
 } from '../src/forecast.js';
+
+test('net worth: what you own minus Afterpay and money owed to friends (future costs are not debts)', () => {
+  const s = example();
+  s.balances.everyday = 16184;
+  s.pots.emergency = { target: 200000, balance: 80547 };
+  s.pots.savings = { balance: 6105 };
+  s.assets = { super: 500000 };
+  s.afterpayBalance = 24048;
+  s.commitments.push({ id: 'f', name: 'Friends', amount: 30703, due: TODAY, kind: 'Friend', addedOn: TODAY });
+  const w = netWorth(s);
+  assert.equal(w.ownTotal, 16184 + 50000 + 80547 + 6105 + 500000);
+  assert.equal(w.oweTotal, 24048 + 30703);
+  assert.equal(w.net, w.ownTotal - w.oweTotal);
+  assert.ok(!w.owe.some((x) => /Invoice|rego/i.test(x.label)));
+});
+
+test('monthly check-in: due the first time, then every 4 weeks; review covers the last 4 weeks', () => {
+  const s = example();
+  assert.equal(checkinDue(s, TODAY).due, true);
+  s.checkins = [{ date: '2026-10-20', net: 0 }];
+  assert.equal(checkinDue(s, TODAY).due, false);
+  assert.equal(checkinDue(s, '2026-11-17').due, true);
+  const tx = [
+    { date: TODAY, amount: 3000, category: 'Everyday', name: 'a' },
+    { date: '2026-10-13', amount: 1000, category: 'Everyday', name: 'b' }, // first day of the 4 weeks
+    { date: '2026-10-12', amount: 9999, category: 'Everyday', name: 'too old' },
+    { date: '2026-11-01', amount: 500, category: 'Gone', name: 'renamed away' },
+  ];
+  const r = monthReview(s, tx, TODAY);
+  assert.equal(r.rows.find((x) => x.name === 'Everyday').spent, 4000);
+  assert.equal(r.rows.find((x) => x.name === 'Everyday').limit, 100000);
+  assert.equal(r.total, 4500);
+});
 
 const TODAY = '2026-11-09';
 

@@ -56,6 +56,8 @@
         </div>
       </div>
 
+      <section class="checkincard" id="checkinCard" data-tab="home" hidden></section>
+
       <section class="panel payday-card" id="paydayPanel" data-tab="home" hidden></section>
 
       <section class="overview" data-tab="home">
@@ -118,6 +120,12 @@
         <div class="billdue" id="commitmentSummary"></div>
         <button class="addrow" id="addCommitment" type="button">＋ Add one-off payment</button>
         <button class="addrow" id="addAfterpay" type="button">＋ Add Afterpay purchase</button>
+      </section>
+
+      <section class="sidecard worthcard" data-tab="savings" id="worthCard">
+        <div class="subhead"><h2>Net worth</h2><button class="pill pillbtn" type="button" data-checkin>Monthly check-in</button></div>
+        <div class="worthnum" id="worthNumber">$0.00</div>
+        <div id="worthBody"></div>
       </section>
 
       <section class="sidecard goalcard" data-tab="savings">

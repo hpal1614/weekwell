@@ -587,3 +587,30 @@ table.history tr.current td:first-child { font-weight: 700; }
 .ivstep .smallbtn { margin-top: 8px; }
 .ivstep .meter { margin-top: 6px; }
 .sidecopy.small { font-size: 12px; margin-top: 10px; }
+
+/* monthly check-in & net worth */
+.checkincard { background: var(--sun); border: 1px solid #f1dfc9; border-radius: var(--radius); padding: 14px 16px; animation: rise .4s var(--ease) both; }
+.checkinrow { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+.checkinicon { font-size: 26px; line-height: 1; }
+.checkinrow b { display: block; font-size: 15px; }
+.checkinrow span { display: block; font-size: 13px; color: #6e5a4c; line-height: 1.4; margin-top: 2px; }
+.cistep { display: flex; align-items: center; gap: 10px; margin: 18px 0 2px; font-size: 15px; }
+.cistep:first-child { margin-top: 4px; }
+.cistep span { width: 26px; height: 26px; border-radius: 50%; background: var(--forest); color: var(--green); display: grid; place-items: center; font: 700 12.5px var(--sans); flex: none; }
+.cistep + .hint { margin-top: 6px; }
+.cireview { margin-left: 0; }
+.cireview li.over b { color: var(--over); }
+.cireview small { color: var(--muted); font-size: 11.5px; }
+.worthnum { font: 800 34px var(--display); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.worthnum.neg { color: var(--over); }
+.worthsub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.worthbars { display: flex; align-items: flex-end; gap: 8px; height: 82px; margin: 14px 0 4px; }
+.worthbars .wb { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%; min-width: 0; }
+.worthbars i { display: block; width: 100%; max-width: 34px; border-radius: 8px 8px 3px 3px; background: linear-gradient(180deg, #86a86b, var(--bar)); transform-origin: bottom; animation: growup .7s var(--ease) both; }
+.worthbars i.neg { background: linear-gradient(180deg, #d0775c, var(--over)); }
+.worthbars .wb:last-child i { background: linear-gradient(180deg, var(--green), #9cc95a); }
+.worthbars span { font: 500 10.5px var(--mono); color: var(--muted); white-space: nowrap; }
+@keyframes growup { from { transform: scaleY(0); } }
+.worthcols { display: grid; grid-template-columns: 1fr; gap: 6px; margin-top: 12px; }
+.worthhead { font-weight: 700; font-size: 13.5px; margin-top: 4px; }
+.worthcols .items { margin-left: 0; }
