@@ -396,6 +396,11 @@ export function validateState(state) {
     if (c.addedOn != null && !isISODate(c.addedOn)) errors.push(`commitments[${i}].addedOn must be a date`);
   });
   if (state.incoming != null && !Array.isArray(state.incoming)) errors.push('incoming must be a list');
+  if (state.merchantRules != null) {
+    const rules = state.merchantRules;
+    if (typeof rules !== 'object' || Array.isArray(rules) || Object.keys(rules).length > 1000
+      || Object.entries(rules).some(([k, v]) => k.length > 200 || typeof v !== 'string' || v.length > 200)) errors.push('merchantRules are invalid');
+  }
   (state.incoming || []).forEach((m, i) => {
     if (!isText(m.id) || !isText(m.name) || !m.name.trim()) errors.push(`incoming[${i}] needs an id and name`);
     if (!isCents(m.amount) || m.amount <= 0) errors.push(`incoming[${i}].amount must be whole cents > 0`);

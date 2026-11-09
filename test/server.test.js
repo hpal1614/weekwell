@@ -24,9 +24,15 @@ before(async () => {
   await db.query(`CREATE TABLE weekwell_state (id smallint PRIMARY KEY CHECK (id = 1), payload jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now())`);
   await db.query(`CREATE TABLE weekwell_schema_migrations (version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`);
   await db.query(`INSERT INTO weekwell_schema_migrations (version) VALUES ('0001_weekwell_state')`);
-  assert.deepEqual(await migrate(db), ['0002_transactions_and_backups']);
+  assert.deepEqual(await migrate(db), ['0002_transactions_and_backups', '0003_transaction_source']);
   assert.deepEqual(await migrate(db), []);
-  server = createApp(db, { today: '2026-11-09', seed: async () => seed, logErrors: false }).listen(0);
+  const upFetch = async (url) => ({ ok: true, status: 200, json: async () => (url.includes('/accounts')
+    ? { data: [{ id: 'spend', attributes: { displayName: 'Spending', accountType: 'TRANSACTIONAL', balance: { valueInBaseUnits: 1000 } } }] }
+    : { data: [
+      { id: 'u1', attributes: { description: 'Coles', amount: { valueInBaseUnits: -4550 }, cardPurchaseMethod: { method: 'CONTACTLESS' }, transactionType: 'Purchase', createdAt: '2026-11-08T10:00:00+11:00' }, relationships: { account: { data: { id: 'spend' } }, transferAccount: { data: null }, category: { data: { id: 'groceries' } } } },
+      { id: 'u2', attributes: { description: 'Cafe', amount: { valueInBaseUnits: -650 }, cardPurchaseMethod: { method: 'CONTACTLESS' }, transactionType: 'Purchase', createdAt: '2026-11-09T08:00:00+11:00' }, relationships: { account: { data: { id: 'spend' } }, transferAccount: { data: null }, category: { data: { id: 'restaurants-and-cafes' } } } },
+    ], links: { next: null } }) });
+  server = createApp(db, { today: '2026-11-09', seed: async () => seed, logErrors: false, upToken: 'test-token', upFetch }).listen(0);
   base = `http://127.0.0.1:${server.address().port}`;
 });
 
@@ -143,4 +149,18 @@ test('a failed restore changes nothing', { skip }, async () => {
   backup.transactions.push({ date: '2026-11-09', amount: 9_000_000_000, category: 'Other', name: 'Too big' });
   assert.equal((await call('POST', '/api/import', backup)).status, 503);
   assert.deepEqual((await call('GET', '/api/transactions')).body.map((t) => t.name), ['Original']);
+});
+
+test('Up sync adds card purchases once, and skips ones you already logged by hand', { skip }, async () => {
+  await call('GET', '/api/state');
+  await call('POST', '/api/transactions', { date: '2026-11-09', amount: 650, category: 'Other', name: 'coffee (typed in)' });
+  const first = await call('POST', '/api/up/sync');
+  assert.equal(first.body.configured, true);
+  assert.equal(first.body.found, 2);
+  assert.equal(first.body.added, 1); // the $6.50 cafe matches the hand-logged coffee
+  const again = await call('POST', '/api/up/sync');
+  assert.equal(again.body.added, 0); // never added twice
+  const tx = (await call('GET', '/api/transactions')).body;
+  assert.deepEqual(tx.map((t) => [t.name, t.source]).sort(), [['Coles', 'up'], ['coffee (typed in)', 'manual']]);
+  assert.equal(tx.find((t) => t.name === 'Coles').category, 'Groceries');
 });

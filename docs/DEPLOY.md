@@ -72,6 +72,26 @@ It opens full screen with the Weekwell icon, like an app. You stay signed in for
 
 ---
 
+## Step 5 (optional): Connect Up Bank so spending logs itself
+
+1. In the **Up app**, open your profile → **Data sharing** → **Personal Access Token**, and follow the steps. It may send you to api.up.com.au to sign in.
+2. **Copy the token.** It starts with `up:yeah:`. Treat it like a password: it lets Weekwell **read** your Up accounts. Up's API can't move money.
+3. In **Vercel → weekwell → Settings → Environment Variables**:
+   - **Key:** `UP_API_TOKEN`
+   - **Value:** the token
+   - Switch the **lock** toggle on, choose **Production**, then **Save**.
+4. **Deployments → ⋯ → Redeploy.**
+5. Open Weekwell → **Spending**. A **Sync Up** button appears, and your Up card purchases from the last 6 weeks come in.
+
+From then on, Weekwell checks Up for new purchases every time you open it.
+
+- **What gets logged:** only card purchases from your Up Spending account.
+- **What's skipped:** transfers, Saver activity, pay coming in, and bills already in your plan (rent, Netflix, gym, Afterpay…), so nothing is counted twice.
+- **Correcting a category:** fix one synced purchase and Weekwell remembers it for that shop.
+- **Turning it off:** delete the token in the Up app (Data sharing) or remove `UP_API_TOKEN` in Vercel.
+
+---
+
 ## How it's protected
 
 - Google proves who you are. The server checks Google's signature, that the sign-in was made for **your** client ID, and that the email is on `ALLOWED_EMAILS`.
