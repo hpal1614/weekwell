@@ -357,3 +357,18 @@ export function paydayPlan(f, state) {
     leftBeforeNext: (() => { const d = f.series.find((x) => x.date === addDays(next, -1)); return d ? { amount: d.balance, date: d.date } : null; })(),
   };
 }
+
+// ---------- money coming in (tax refund, bonus, gift) ----------
+
+/**
+ * Where a lump of extra money should go when it actually arrives:
+ * fill the emergency fund to its goal first, then 70% locked savings / 30% wants.
+ * Expected money is never counted in the forecast before it lands.
+ */
+export function windfallSplit(state, amount) {
+  const gap = Math.max(0, state.pots.emergency.target - state.pots.emergency.balance);
+  const emergency = Math.min(amount, gap);
+  const rest = amount - emergency;
+  const savings = Math.round((rest * DEFAULT_SPLIT.full.savings) / 100);
+  return { emergency, savings, wants: rest - savings };
+}

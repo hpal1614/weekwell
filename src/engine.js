@@ -395,6 +395,12 @@ export function validateState(state) {
     if (!isText(c.kind)) errors.push(`commitments[${i}].kind is invalid`);
     if (c.addedOn != null && !isISODate(c.addedOn)) errors.push(`commitments[${i}].addedOn must be a date`);
   });
+  if (state.incoming != null && !Array.isArray(state.incoming)) errors.push('incoming must be a list');
+  (state.incoming || []).forEach((m, i) => {
+    if (!isText(m.id) || !isText(m.name) || !m.name.trim()) errors.push(`incoming[${i}] needs an id and name`);
+    if (!isCents(m.amount) || m.amount <= 0) errors.push(`incoming[${i}].amount must be whole cents > 0`);
+    if (m.expectedOn != null && !isISODate(m.expectedOn)) errors.push(`incoming[${i}].expectedOn must be a date`);
+  });
   state.wants.forEach((w, i) => {
     if (!isText(w.id) || !isText(w.name)) errors.push(`wants[${i}] needs an id and name`);
     if (!isCents(w.price) || w.price <= 0) errors.push(`wants[${i}].price must be whole cents > 0`);

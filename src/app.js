@@ -4,7 +4,7 @@ import {
   fromCents, inRange, longDate, newId, perWeek, shortDate, spentByCategory, toCents, todayISO,
   weekLabel, weekStart, weeklyHistory, weeklyPlan, weeksPerPay,
 } from './engine.js';
-import { allocation, canBuyNow, coolingDays, emergencyFull, forecast, paydayPlan, suggestSplit, wantsTimeline } from './forecast.js';
+import { allocation, canBuyNow, coolingDays, emergencyFull, forecast, paydayPlan, suggestSplit, wantsTimeline, windfallSplit } from './forecast.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -114,6 +114,7 @@ function render() {
   renderHistory(now);
   renderSide(plan, now);
   renderPots(f);
+  renderIncoming();
   renderWants(f, now);
   renderTip(plan, f);
 }
@@ -382,6 +383,45 @@ function renderPots(f) {
       <div class="potnote">${emergencyFull(state) ? 'Full ✓ Its share of each pay now goes to savings and wants.' : alloc && alloc.emergency ? `+${formatMoney(alloc.emergency)} each pay until full.` : 'Not being topped up yet. Choose your split in the forecast.'}</div></div>
     <div class="potrow"><div class="pottop"><div><div class="potname">${esc(potName('savings'))}</div><div class="potwhere">UP SAVER · NEVER WITHDRAW</div></div><span class="potamt">${formatMoney(p.savings.balance)}</span></div>
       <div class="potnote">${alloc && alloc.savings ? `+${formatMoney(alloc.savings)} each pay. Untouched, it keeps Up's bonus rate.` : 'Choose how much goes here each pay in the forecast.'}</div></div>`;
+}
+
+function renderIncoming() {
+  const list = state.incoming || [];
+  const total = list.reduce((a, m) => a + m.amount, 0);
+  $('incomingPill').textContent = total ? `${formatMoney(total)} expected` : 'not counted yet';
+  $('incomingList').innerHTML = list.length ? list.map((m) => {
+    const w = windfallSplit(state, m.amount);
+    const line = (name, amount) => (amount ? `<li><span>${esc(name)}</span><b>${formatMoney(amount)}</b></li>` : '');
+    return `<div class="incomingrow">
+      <div class="wanttop"><button class="wantname" data-edit-incoming="${esc(m.id)}" title="Edit">${esc(m.name)}</button><span class="potamt">${formatMoney(m.amount)}</span></div>
+      <div class="wantstatus">${m.expectedOn ? `EXPECTED AROUND ${longDate(m.expectedOn).toUpperCase()}` : 'DATE NOT KNOWN YET'} · NOT IN THE PLAN UNTIL IT ARRIVES</div>
+      <div class="potnote">When it lands, move it like this:</div>
+      <ul class="items">${line(`${potName('emergency')} (fills it to ${formatMoney(state.pots.emergency.target)})`, w.emergency)}${line(potName('savings'), w.savings)}${line('Wants', w.wants)}</ul>
+      <div class="wantactions">
+        <button class="smallbtn primary" data-arrived-incoming="${esc(m.id)}">It arrived</button>
+        <button class="iconbtn" data-del-incoming="${esc(m.id)}" aria-label="Remove ${esc(m.name)}">×</button>
+      </div></div>`;
+  }).join('') : '<div class="empty">Nothing expected. Add a tax refund, bonus or anything else you’re waiting on.</div>';
+}
+
+function incomingForm(existing) {
+  openForm({
+    title: existing ? 'Edit expected money' : 'Money you’re expecting',
+    submitLabel: existing ? 'Save changes' : 'Add',
+    fields: [
+      { name: 'name', label: 'What is it?', placeholder: 'e.g. Tax refund', value: existing?.name, required: true },
+      { name: 'amount', label: 'About how much', type: 'money', value: existing?.amount, required: true, min: 0.01, half: true },
+      { name: 'expectedOn', label: 'Expected around (optional)', type: 'date', value: existing?.expectedOn, half: true },
+    ],
+    note: 'Weekwell won’t count this until you tap “It arrived”, so your plan never depends on money that might be late or smaller.',
+    onSubmit: (v) => {
+      state.incoming = state.incoming || [];
+      const fields = { name: v.name, amount: v.amount, expectedOn: v.expectedOn };
+      if (existing) Object.assign(existing, fields);
+      else state.incoming.push({ id: newId('in'), ...fields });
+      saveState();
+    },
+  });
 }
 
 function renderWants(f, now) {
@@ -830,6 +870,10 @@ function wireEvents() {
   $('addBill').onclick = () => billForm();
   $('addCommitment').onclick = () => commitmentForm();
   $('addWant').onclick = () => wantForm();
+  $('addIncoming').onclick = () => incomingForm();
+  $('tabAdd').onclick = () => spendingForm();
+  for (const b of document.querySelectorAll('[data-goto]')) b.onclick = () => setTab(b.dataset.goto, true);
+  window.addEventListener('hashchange', () => setTab(location.hash.slice(1), false));
   $('addAfterpay').onclick = afterpayPurchaseForm;
   $('updateBalances').onclick = balancesForm;
   let resizeTimer;
@@ -873,6 +917,18 @@ function wireEvents() {
     }
     if (d.open) ({ balances: balancesForm, settings: settingsForm, plan: planForm })[d.open]?.();
     if (d.editWant) wantForm(find(state.wants, d.editWant));
+    if (d.editIncoming) incomingForm(find(state.incoming || [], d.editIncoming));
+    if (d.delIncoming) {
+      const m = find(state.incoming || [], d.delIncoming);
+      if (m && confirm(`Remove “${m.name}”?`)) { state.incoming = state.incoming.filter((x) => x !== m); saveState(); }
+    }
+    if (d.arrivedIncoming) {
+      const m = find(state.incoming || [], d.arrivedIncoming);
+      if (!m || !confirm(`${m.name} arrived? Move it into your Savers as shown, then enter your new balances so the plan counts it.`)) return;
+      state.incoming = state.incoming.filter((x) => x !== m);
+      await saveState();
+      balancesForm();
+    }
     if (d.checkWant) buyCheckDialog(find(state.wants, d.checkWant));
     if (d.upWant) {
       const w = find(state.wants, d.upWant);
@@ -891,6 +947,30 @@ function wireEvents() {
       if (w && confirm(`Remove “${w.name}” from wants?`)) { state.wants = state.wants.filter((x) => x !== w); saveState(); }
     }
   });
+}
+
+// ---------- tabs (phones & tablets) ----------
+
+const TABS = ['home', 'spending', 'bills', 'savings'];
+
+function setTab(name, fromTap) {
+  const tab = TABS.includes(name) ? name : 'home';
+  document.body.dataset.tab = tab;
+  for (const b of document.querySelectorAll('[data-goto]')) {
+    if (b.dataset.goto === tab) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  }
+  if (fromTap) {
+    if (location.hash.slice(1) !== tab) history.replaceState(null, '', tab === 'home' ? location.pathname : `#${tab}`);
+    window.scrollTo({ top: 0 });
+  }
+  try { localStorage.setItem('weekwell:tab', tab); } catch { /* storage unavailable */ }
+  if (fromTap && tab === 'home' && state) render(); // redraw the chart at its real width
+}
+
+function initialTab() {
+  const fromHash = location.hash.slice(1);
+  if (TABS.includes(fromHash)) return fromHash;
+  try { return localStorage.getItem('weekwell:tab') || 'home'; } catch { return 'home'; }
 }
 
 // ---------- start ----------
@@ -979,5 +1059,6 @@ if ('serviceWorker' in navigator && location.hostname !== 'localhost' && locatio
 }
 
 $('today').textContent = longDate(today()).toUpperCase();
+setTab(initialTab(), false);
 wireEvents();
 boot();
