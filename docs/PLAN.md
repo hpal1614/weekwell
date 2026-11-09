@@ -1,179 +1,221 @@
-# Weekwell: implementation plan
+# Weekwell: plan
 
-Status: **proposal, not built yet**. Nothing in this plan changes the app until a phase is approved.
+Phases 0–2 are **built**, and Phase 3 onward is a proposal. This page explains the money system the app is being built around, and why.
 
-## 1. The goal
+> General information to help you organise your own money, not personal financial advice. Bank rates and conditions change, so confirm them in the Up and CommBank apps before relying on them.
 
-Make a savings amount that you **never have to take back**.
+---
 
-Today the problem looks like this:
+## 1. The problems we're solving
 
-1. A few dollars look "spare", so you move money to savings.
-2. A bill, an Afterpay instalment or a one-off cost turns up that the plan didn't account for.
-3. You withdraw from savings, and the bank drops you to the base interest rate for that month.
+1. **Savings keep getting withdrawn.** Money looks spare today, so it goes into savings. Then a bill, an Afterpay instalment or a surprise turns up, and it comes back out. Each withdrawal can cost that month's bonus interest.
+2. **Wanting things** (e.g. a ~$1,000 DDJ controller) with no way to know *if* or *when* you can buy it without hurting savings, which leads to impulse buys.
+3. **Emergencies** have nowhere to come from except savings.
+4. **Lots of upcoming payments**, and a temptation to cover them with a credit card.
 
-Most Australian bonus-interest savers pay bonus interest only in months with **no withdrawals** (and usually a minimum deposit or balance growth). Missing the condition once means the base rate for the whole month. So one withdrawal costs more than its own size.
+All four have the same root cause. **Every dollar sits in one pile with no job.** Bill money, fun money, emergency money and long-term savings are mixed together, so you can't tell which dollars are safe to use.
 
-The withdrawals aren't a willpower problem. They happen because the app (and most budgets) only look at **this week**. The money that seemed spare was already needed for something coming in 3, 6 or 20 weeks.
+## 2. What the research says
 
-## 2. The approach, and why
+### Proven budgeting systems
 
-### Options considered
+- **YNAB's four rules**, among the most widely used budgeting methods:
+  - give every dollar a job
+  - embrace your true expenses (set aside for irregular bills before they arrive)
+  - roll with the punches (overspent? move money from another category, don't abandon the plan)
+  - age your money (spend money that came in a while ago, not today's pay)
+- **Barefoot Investor "buckets"**, the most popular system in Australia:
+  - day-to-day (~60%)
+  - a "Fire Extinguisher" for problems and debt (~20%)
+  - "Splurge" for treats (~10%)
+  - "Smile" for bigger wants (~10%)
+  - a separate "Mojo" emergency fund that starts around $2,000 and grows toward 3–6 months of expenses
 
-| Approach | Why not (alone) |
-|---|---|
-| Save a fixed % of pay ("pay yourself first") | Ignores lumpy bills. In a heavy month the % is too much, and you withdraw. This is close to what happens now. |
-| Save whatever is left at the end of the week | Reactive. Leftover usually gets spent, and it can't see next month's bills either. |
-| Full envelope budgeting (every dollar assigned) | Works, but takes a lot of manual effort every week, which is what makes people stop. |
-| **Forecast-based "safe to save" (chosen)** | Looks ahead at every known cost, then only suggests what is provably spare. |
+  Scott Pape himself says the percentages are a rough guide.
+- **Sinking funds:** irregular but expected costs (rego, insurance, gifts) become a small fixed weekly amount. When the bill comes, the money is already there.
+- **Emergency fund:** the common guidance is about 3 months of essential expenses, more if income varies. Build a smaller starter amount first.
 
-### How "safe to save" works
+### Behaviour studies (why the structure matters more than willpower)
 
-1. The app knows every money movement it can predict over the **next 52 weeks**:
-   - paydays
-   - rent and recurring bills, each with a next due date
-   - Afterpay instalments
-   - one-off commitments
-   - quarterly and annual bills (rego, insurance)
-   - weekly spending limits
-2. It runs a forecast of your everyday balance, week by week.
-3. It finds the **lowest point** that balance ever reaches.
-4. It searches for the largest **steady amount per pay** that keeps that lowest point above a **safety buffer**.
+- **Earmarking / mental accounting** (Thaler; Soman & Cheema 2011): people are much less likely to spend money that is labelled and kept apart for a purpose. A pot named "Car rego" or "DDJ" gets raided far less than a general "savings" balance.
+- **Commitment devices** (Ashraf, Karlan & Yin 2006): savers who chose to lock money away saved significantly more than those who kept access. The lock works because it removes the decision.
+- **Save More Tomorrow** (Thaler & Benartzi 2004): committing in advance to save a steady amount works far better than deciding each time.
+- **Cooling-off periods:** waiting before a purchase (e.g. 24 hours for small items, 30 days for big ones) is a widely used practitioner rule against impulse buying. The urge usually fades, and the things you still want afterwards are the ones worth planning for.
 
-That amount is the suggestion. By construction, if you save it every pay, the forecast never needs that money back.
+### Your banks
 
-The suggestion is recalculated every payday. After a big bill passes, the amount goes up. When a new cost is added, the suggestion goes down, **before** you're short, rather than after.
+**Up: ordinary Savers** (5.35–5.6% p.a. reported for late 2026, up to $250k):
 
-### Worked example (made-up numbers, not yours)
+- You need **5 card purchases** from Up in a calendar month.
+- A **Saver you withdraw from that month drops to the low "Flow" rate**. Reports say this applies only to the Saver you touched, not all of them.
+- Missing the 5 purchases may lower the rate on *all* Savers that month.
 
-Assumptions:
+This is the key finding. **Up lets you keep several separate Savers, and touching one doesn't hurt the others.** That makes Up a natural fit for the bucket system: one Saver for long-term savings that you never touch, and separate Savers for things you're allowed to use.
 
-- pay: $2,000 fortnightly
-- rent: $450 a week
-- everyday spending: $250 a week
-- phone: $60 a month
-- $1,200 one-off due in week 9
-- $800 car rego due in week 20
-- current balance: $600, with a $500 buffer
+**CommBank GoalSaver** (about 4.9–5.25% p.a. reported):
 
-| Strategy | Saved per pay | Lowest balance in the year |
+- Bonus paid if you make **at least one deposit** in the month **and** finish the month with a **higher balance** than you started with.
+- A withdrawal is OK if you deposit more than you took out that month.
+- It's one account, though, so all your money mixes together again.
+
+**Recommendation:** keep long-term savings in a dedicated Up Saver, and use other Up Savers as the "allowed to touch" pots. Keep CommBank Smart Access as your low-balance "subscription trap", which is a good trick you already use. Make sure at least 5 everyday purchases a month go on your Up card.
+
+### Credit card: recommendation is **not now**
+
+- A card doesn't create money. When upcoming payments exceed what you have, a card fills the gap by borrowing. Typical Australian card rates are about 20–27% p.a.
+- Interest-free days only apply if you **pay the full balance** every statement.
+- You're already juggling Afterpay. Adding a second credit line tends to repeat the same pattern with more expensive money.
+- The forecast (Phase 3) shows a cash crunch **weeks in advance**, so it can be planned around instead of borrowed through.
+- If you want a card later: only once your buffer and starter emergency fund exist. Pick a no or low annual fee card, set autopay to the **full** balance, and only buy things already in the plan.
+
+## 3. The system: five pots
+
+| Pot | Where it lives | What it's for | Allowed to touch? |
+|---|---|---|---|
+| **Everyday** | Up Spending | This week's spending allowance and bill auto-debits | Yes |
+| **Bills & buffer** | Up Saver | Sinking funds for irregular bills + a small buffer for little surprises | Yes, for bills and small surprises |
+| **Emergency fund** | Up Saver | Real emergencies only (car breakdown, medical, urgent travel, losing income) | Only in a real emergency |
+| **Wants** | One Up Saver per goal (e.g. "DDJ") | Planned purchases | Yes, when the goal is reached |
+| **Locked savings** | Up Saver | Long-term savings | **Never**. The app tracks your streak |
+
+Because each pot is a separate Up Saver, using Bills & buffer or the DDJ Saver doesn't change the interest on Locked savings.
+
+### How each pay is split (worked out by the app)
+
+The forecast looks 52 weeks ahead at every known payment, then fills the pots in this order:
+
+1. Overdue and due-now payments
+2. Bills, Afterpay and sinking-fund amounts
+3. Everyday spending allowance
+4. Top up **Bills & buffer** to its target
+5. Whatever is provably spare is the **safe-to-save** amount, split between:
+   - **Locked savings**: your committed amount, which stays steady every pay
+   - **Emergency fund**: until it reaches its target, then this share moves to savings or wants
+   - **Wants**: funds your goals in priority order
+
+You choose the split, and the app suggests one. For example, while the emergency fund is building: 40% savings / 40% emergency / 20% wants. Once it's full: 70% savings / 30% wants.
+
+### Planned purchases (the DDJ example)
+
+Add a want with its price. The app then shows one of two answers.
+
+1. **"You can buy it now"**, but only if *both* are true:
+   - the 52-week forecast stays above your buffer after paying for it today, **and**
+   - your committed savings amount per pay doesn't go down.
+
+   "No upcoming payments today" isn't enough on its own. Money that looks free now may be needed in 6 weeks, and the check looks a year ahead.
+2. **"Ready on 14 Feb"**, based on what the Wants share puts aside each pay. It also shows ways to get there sooner, e.g. "lower Meals out by $20/week and it's ready 3 weeks earlier."
+
+**Cooling-off:** a new want waits before "Buy" unlocks:
+
+- 24 hours under $100
+- 7 days up to $500
+- 30 days above $500
+
+If you still want it afterwards, it becomes a goal with a date. **Your locked savings are never used to buy wants.**
+
+### What to do in each situation
+
+| What happens | Money comes from | What the app does next |
 |---|---|---|
-| "Leftover this fortnight" | $540 | **−$1,100** in week 9: you'd have to withdraw |
-| Forecast safe-to-save | $344 | $500 (buffer untouched), and no withdrawal ever |
+| Small surprise (parking fine, extra groceries) | Bills & buffer | Next pay refills the buffer **before** anything else |
+| Overspent a category | Another category this week, or the buffer | Shows it in History so the limit can be fixed |
+| Real emergency (car, medical, urgent travel) | Emergency fund | Refills it from the **wants** share first, so your committed savings amount stays the same |
+| An emergency bigger than the emergency fund | Emergency fund, then Locked savings as a last resort | This is what savings are for, and it's still better than debt at 20%+ |
+| Pay is late or smaller | Buffer | Safe-to-save pauses for that pay instead of you withdrawing later |
+| Annual bill (rego, insurance) | Its sinking fund in Bills & buffer | Already saved weekly, tracked as "saved so far" |
+| Want something | Wants pot for that item | Cooling-off, then a purchase date |
+| "It's on sale!" | Only the wants pot | A deal only counts if the item was already on your list |
+| Afterpay offer | — | Shows all 4 instalments in the forecast. Rule: if it fails "buy it now" as cash, it fails as Afterpay too |
+| Windfall (tax refund, bonus, gift) | — | Suggests: top up emergency fund first, then split between savings and wants |
+| New subscription | — | Shows the yearly cost and adds it to the forecast before you commit |
 
-Saving $344 every pay beats saving $540 and taking $1,100+ back out, losing that month's bonus interest along the way.
+---
 
-### The 3-account setup the app will plan around
+## 4. Phases
 
-The app can't make withdrawals impossible, but this setup removes the reasons for them. It needs one extra account, and most banks offer free ones.
+### ✅ Phase 0: Safety net (built)
 
-| Account | Holds | Withdrawals |
-|---|---|---|
-| **Everyday** | This week's spending allowance | Yes, this is the spending money |
-| **Bills & buffer** | Money for upcoming bills, Afterpay and annual costs (sinking funds) + safety buffer | Yes, this is the account you *are* allowed to dip into |
-| **Locked savings** (bonus saver) | Only the safe-to-save amount | **Never.** The app tracks your no-withdrawal streak |
+- [x] **Backup → Download backup** saves everything as a JSON file. **Restore** loads one, after automatically snapshotting the current data first.
+- [x] Automatic snapshot of your original data before it's converted to the new format, in the `weekwell_backups` table.
+- [x] All money stored as whole cents.
+- [x] Money maths in `src/engine.js` with automated tests: `npm test`, 18 tests including the server ones.
+- [x] Readable code split into separate files.
+- [x] Fixed: the migration runner never actually ran SQL (`sql.unsafe` doesn't execute in this driver).
 
-If something unexpected happens, it comes out of the buffer, never out of savings. The next forecast then refills the buffer before suggesting more savings.
+### ✅ Phase 1: Wrong-number bugs (built)
 
-### The payday routine (about 5 minutes per pay)
+- [x] Overdue payments stay in the plan as "needed now" and are highlighted, instead of disappearing.
+- [x] Week arrows browse weeks instead of deleting spending. The destructive "Reset week" button is removed.
+- [x] "Other" is its own category, and categories can be added, renamed (past entries follow) or removed.
+- [x] Spending can be edited and deleted, every entry for the week is shown, and entries can be logged on past dates.
+- [x] Afterpay balance editable, payment type selectable, hardcoded "Water" line removed.
+- [x] Fixed labels ("saved to your database", not "browser"), and names are escaped safely.
+- [x] Settings: pay, next payday, and which day weeks start (tip: your payday).
 
-On payday the app shows a **check-in** screen:
+### ✅ Phase 2: Real dates and history (built)
 
-1. Enter the actual balances of your Everyday and Bills & buffer accounts. This corrects any drift between the app and reality.
-2. The app shows exact transfers, for example:
-   - "Move $X to Bills & buffer"
-   - "Move $Y to Locked savings"
-   - "Keep $Z in Everyday for this fortnight"
-3. Tap "Done" and the transfers are recorded.
+- [x] Every entry has a real date and is stored in its own table, kept indefinitely.
+- [x] Weeks follow the calendar. A new week starts automatically and nothing is deleted.
+- [x] History: the last 8 weeks against your limits (tap a week to open it), and average per week per category over the last 4 full weeks.
 
-Order of priority each payday:
+### Phase 3: Forecast and the five pots
 
-1. Overdue and due-now items
-2. Bills, Afterpay and sinking-fund contributions
-3. Weekly spending allowance
-4. Top up the buffer to its target
-5. Safe-to-save to locked savings
+- [ ] Bills get a next due date. Afterpay purchases create their 4 fortnightly instalments automatically.
+- [ ] Sinking funds with "saved so far", which fixes the growing weekly amount for dated payments.
+- [ ] 52-week forecast, chart of the projected balance, and the lowest point highlighted.
+- [ ] Headline numbers: **Safe to spend until payday** and **Safe to save this pay**.
+- [ ] Pots: Bills & buffer, Emergency fund, Wants, Locked savings, with targets and split settings.
+- [ ] Wants: cooling-off, the "Can I buy it now?" check, purchase date, and "get there sooner" suggestions.
 
-## 3. Phases
+### Phase 4: Payday check-in and savings protection
 
-Each phase is shippable on its own and is reviewed before the next starts.
+- [ ] Check-in: enter real balances, get the exact transfer list ("Move $X to the DDJ Saver"), confirm.
+- [ ] Savings record and **no-withdrawal streak**.
+- [ ] Up conditions tracker: "4 of 5 card purchases this month" and "Locked savings untouched ✓". Warns before month end.
+- [ ] If you withdraw, the app asks why, and adds that cost to the plan so it doesn't happen again.
 
-### Phase 0: Safety net (do first)
+### Phase 5: Learning from real spending
 
-- [ ] **Backup/export**: a button to download all data as JSON, plus a restore option. Your real data must be safe before anything changes.
-- [ ] Store money as **whole cents** (integers), so no floating-point rounding drift.
-- [ ] Move the money maths out of `index.html` into a separate `engine.js` module of plain functions, with automated tests (`node --test`). This is money maths, so every rule gets a test.
-- [ ] Split the single long line of JavaScript into readable files.
+- [ ] Suggest limits from your actual 4-week averages (the History data from Phase 2).
+- [ ] Monthly review: planned vs actual, interest kept, savings growth, Afterpay payoff date.
 
-### Phase 1: Fix the bugs that give wrong numbers
+### Phase 6: Connect Up Bank (no more manual logging)
 
-- [ ] Overdue commitments stay in the plan (as due now) instead of disappearing.
-- [ ] Week arrows no longer delete spending (removed in Phase 2 anyway).
-- [ ] "Other" spending gets its own category instead of counting as Meals out.
-- [ ] Edit and delete for logged spending; show the whole week, not just 5 entries.
-- [ ] Fix the labels: the edit-limits prompt, and "Entries stay in this browser".
-- [ ] Afterpay balance editable; remove the hardcoded "Water" line.
-- [ ] Escape names before showing them, so a `<` in a name can't break the page.
+- [ ] Up has an official API for personal use. You create a **personal access token** in the Up app (Data sharing → Personal Access Token). Weekwell can then read your Up transactions and balances automatically.
+- [ ] Read-only use. The token stays in `.env.local`, never in Git.
+- [ ] CommBank has no personal API. Import its CSV export instead.
 
-### Phase 2: Real dates and history
+### Later
 
-- [ ] Every transaction gets a real date. Weeks come from the calendar and your payday, not a counter.
-- [ ] Move transactions into their own database table (`transactions`), so history isn't capped by the 256 KB state limit.
-- [ ] History view: spending per category per week and month, and "where did it go" over the last 4 weeks.
-- [ ] The week rolls over automatically. Leftover allowance goes to the buffer, not back into spending.
+- Login before the app is ever hosted publicly. It stays on localhost until then.
 
-### Phase 3: Forecast engine and safe to save (the core)
+---
 
-- [ ] Bills get a **next due date** as well as a frequency. You'll be asked to fill these in once.
-- [ ] Afterpay purchases: enter the total and first payment date, and the app creates the 4 fortnightly instalments. It warns if any instalment lands where the forecast is short, since Afterpay late fees are $10 + $7, capped at the lower of $68 or 25% of the order.
-- [ ] Annual and quarterly bills get sinking funds: a weekly set-aside with a **saved so far** amount. This fixes the "growing reserve" bug.
-- [ ] 52-week forecast plus the lowest-point search described above.
-- [ ] Safety buffer target, with a suggested default: one fortnight of essential spending, adjustable.
-- [ ] Forecast chart: projected balance over coming weeks, with bills marked and the low point highlighted.
-- [ ] Main screen headline numbers:
-  - **"Safe to spend until payday"**
-  - **"Safe to save this pay"**
+## 5. Questions before Phase 3
 
-### Phase 4: Payday check-in and the savings ledger
+1. **Where does your pay land:** CommBank or Up? And which day, and is it always the same amount?
+2. **Are you happy to create separate Up Savers** for Bills & buffer, Emergency fund, Locked savings, and one per want (e.g. DDJ)?
+3. **Which of your bills come out of Up, and which still come out of CommBank?**
+4. **Starter emergency fund target:** $1,000, $2,000, or one month of essentials?
+5. **Default savings / wants split** once the emergency fund is full: 70/30 to start?
 
-- [ ] Check-in flow: enter real balances, see the transfer list, confirm.
-- [ ] Savings ledger: every deposit recorded, and running total of locked savings.
-- [ ] Bonus-interest rules for your account, e.g. "min $X deposit per month, no withdrawals". The app shows "this month: condition met / at risk" and reminds you before month end if a deposit is still needed.
-- [ ] No-withdrawal streak counter.
-- [ ] If you ever do withdraw, the app asks what it was for. That cost is added to the plan (as a bill or sinking fund) so the same thing doesn't cause a withdrawal again.
+## Sources
 
-### Phase 5: Learning from your real spending
-
-- [ ] After 2–4 weeks of logging, suggest spending limits based on what you actually spend rather than guesses.
-- [ ] Monthly review: planned vs actual, interest kept, savings growth.
-- [ ] Optional: Afterpay payoff view (what's owed and when it's all clear).
-
-### Later / only if needed
-
-- Login and password, required **before** the app is ever hosted publicly. It stays on localhost until then.
-- Bank import (CSV upload from your bank) to reduce manual logging.
-
-## 4. Data model (target)
-
-Configuration stays in the existing `weekwell_state` JSONB, with these new fields:
-
-- `pay`: amount in cents, frequency, next payday
-- `bills[]`: amount, frequency, next due date, sinking-fund saved so far
-- `commitments[]`: one-off items, and Afterpay purchases with their instalment schedule
-- `buffer`: target amount
-- `savingsRules`: the bank's bonus conditions
-
-New tables:
-
-- `transactions` (id, date, amount_cents, category, note)
-- `checkins` (id, date, everyday_balance, bills_balance, transfers jsonb)
-- `savings_events` (id, date, amount_cents, kind: deposit | withdrawal, reason)
-
-Migrations are added as new numbered SQL files (`0002_…`), run by the existing `scripts/migrate.mjs` (to be extended to run every file in order).
-
-## 5. Questions to answer before Phase 3
-
-1. **Your savings account:** which bank/product, and its exact bonus conditions (min deposit? balance must grow? no withdrawals?), so the app checks the right rules.
-2. **A Bills & buffer account:** do you have, or are you willing to open, a second account for it? The plan works best with it. Without it, the buffer can live in Everyday, but it's easier to spend by accident.
-3. **Payday:** which day, and is the amount always the same?
-4. **Buffer size:** is one fortnight of essentials comfortable, or would you rather start smaller and grow it?
+- Up conditions:
+  - [savings.com.au](https://www.savings.com.au/news/new-conditions-for-up-saver-account-interest)
+  - [OzBargain](https://www.ozbargain.com.au/node/958410)
+  - [Money Hack HQ rate tracker](https://moneyhackhq.com/australian-savings-rate-bank-bonus-tracker/)
+- CommBank GoalSaver:
+  - [CommBank terms (PDF)](https://www.commbank.com.au/personal/apply-online/download-printed-forms/SavingsInvestment_ADB2852.pdf)
+  - [Finder](https://www.finder.com.au/bank-accounts/commonwealth-bank-savings-accounts/commonwealth-bank-goal-saver-savings-account)
+  - [Bankmate](https://bankmate.app/savings/account/commonwealth-bank-goalsaver)
+- [Up API](https://developer.up.com.au/)
+- [Afterpay late fees](https://www.afterpay.com/en-AU/help/360031624311-Why-have-I-been-charged-a-late-fee)
+- [Barefoot buckets (PocketSmith)](https://pocketsmith.com/methodologies/barefoot-investor-buckets)
+- [YNAB four rules](https://www.ynab.com/ynab-four-rules-budgeting)
+- [Sinking funds (Empower)](https://www.empower.com/the-currency/money/what-is-a-sinking-fund)
+- Studies (well known, cited from memory):
+  - Soman & Cheema (2011), *Earmarking and partitioning*, Journal of Marketing Research
+  - Ashraf, Karlan & Yin (2006), *Tying Odysseus to the Mast*, Quarterly Journal of Economics
+  - Thaler & Benartzi (2004), *Save More Tomorrow*, Journal of Political Economy
