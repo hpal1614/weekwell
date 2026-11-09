@@ -168,7 +168,7 @@ function render() {
   renderHistory(now);
   renderSide(plan, now);
   renderPots(f);
-  renderIncoming();
+  renderIncoming(f);
   renderWants(f, now);
   renderTip(plan, f);
 }
@@ -447,18 +447,18 @@ function renderPots(f) {
       <div class="potnote">${alloc && alloc.savings ? `+${formatMoney(alloc.savings)} each pay. Untouched, it keeps Up's bonus rate.` : 'Choose how much goes here each pay in the forecast.'}</div></div>`;
 }
 
-function renderIncoming() {
+function renderIncoming(f) {
   const list = state.incoming || [];
   const total = list.reduce((a, m) => a + m.amount, 0);
   $('incomingPill').textContent = total ? `${formatMoney(total)} expected` : 'not counted yet';
   $('incomingList').innerHTML = list.length ? list.map((m) => {
-    const w = windfallSplit(state, m.amount);
+    const w = windfallSplit(state, m.amount, f?.status === 'short' ? f.shortfall : 0);
     const line = (name, amount) => (amount ? `<li><span>${esc(name)}</span><b>${formatMoney(amount)}</b></li>` : '');
     return `<div class="incomingrow">
       <div class="wanttop"><button class="wantname" data-edit-incoming="${esc(m.id)}" title="Edit">${esc(m.name)}</button><span class="potamt">${formatMoney(m.amount)}</span></div>
       <div class="wantstatus">${m.expectedOn ? `Expected around ${longDate(m.expectedOn)}` : 'Date not known yet'} · not in the plan until it arrives</div>
       <div class="potnote">When it lands, move it like this:</div>
-      <ul class="items">${line(`${potName('emergency')} (fills it to ${formatMoney(state.pots.emergency.target)})`, w.emergency)}${line(potName('savings'), w.savings)}${line('Wants', w.wants)}</ul>
+      <ul class="items">${line(`Keep in your account for what’s coming${f?.shortDate ? ` (tightest around ${shortDate(f.shortDate)})` : ''}`, w.keep)}${line(`${potName('emergency')} (fills it to ${formatMoney(state.pots.emergency.target)})`, w.emergency)}${line(potName('savings'), w.savings)}${line('Wants', w.wants)}</ul>
       <div class="wantactions">
         <button class="smallbtn primary" data-arrived-incoming="${esc(m.id)}">It arrived</button>
         <button class="iconbtn" data-del-incoming="${esc(m.id)}" aria-label="Remove ${esc(m.name)}">×</button>
