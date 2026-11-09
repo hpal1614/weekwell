@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.npm-cache/
+.env
+.env.*
+!.env.example
+.private/
+.neon/
+outputs/
+reports/
+research_notes/
+work/
+npm-debug.log*
+
