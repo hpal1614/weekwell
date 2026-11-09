@@ -10,13 +10,18 @@ async function request(method, url, body) {
   try { data = await response.json(); } catch { /* empty body */ }
   if (!response.ok) {
     const error = new Error((data && data.error) || `Request failed (${response.status})`);
+    error.status = response.status;
     error.details = data && data.details;
+    if (response.status === 401) window.dispatchEvent(new CustomEvent('weekwell:signed-out'));
     throw error;
   }
   return data;
 }
 
 export const api = {
+  authConfig: () => request('GET', '/auth/config'),
+  me: () => request('GET', '/api/me'),
+  logout: () => request('POST', '/auth/logout'),
   getState: () => request('GET', '/api/state'),
   putState: (state) => request('PUT', '/api/state', state),
   listTransactions: (from, to) => request('GET', `/api/transactions?${new URLSearchParams({ ...(from && { from }), ...(to && { to }) })}`),

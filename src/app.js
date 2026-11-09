@@ -854,6 +854,80 @@ async function loadEverything() {
   render();
 }
 
+// ---------- sign in ----------
+
+function showGate(message, isError = false) {
+  $('shell').hidden = true;
+  $('addExpense').hidden = true;
+  $('gate').hidden = false;
+  if (message) { $('gateText').textContent = message; $('gateText').classList.toggle('error', isError); }
+}
+
+function loadGoogleScript() {
+  return new Promise((resolve, reject) => {
+    if (window.google?.accounts?.id) return resolve();
+    const script = Object.assign(document.createElement('script'), { src: 'https://accounts.google.com/gsi/client', async: true });
+    script.onload = resolve;
+    script.onerror = () => reject(new Error('Could not load Google sign-in. Check your connection.'));
+    document.head.append(script);
+  });
+}
+
+async function showGoogleSignIn(clientId) {
+  const reason = new URLSearchParams(location.search).get('login');
+  if (reason) history.replaceState(null, '', '/');
+  showGate(
+    reason === 'denied' ? 'That Google account isn’t allowed to open this budget. Try the account you set up.'
+      : reason === 'failed' ? 'Sign-in didn’t work. Please try again.'
+        : 'Sign in with your Google account to open your budget.',
+    Boolean(reason),
+  );
+  try {
+    await loadGoogleScript();
+    // Redirect mode: works in a normal browser and when installed on a phone's home screen.
+    google.accounts.id.initialize({ client_id: clientId, ux_mode: 'redirect', login_uri: `${location.origin}/auth/google` });
+    google.accounts.id.renderButton($('googleButton'), { theme: 'filled_black', size: 'large', shape: 'pill', text: 'signin_with', width: 280 });
+  } catch (error) {
+    showGate(error.message, true);
+  }
+}
+
+async function boot() {
+  let config;
+  try { config = await api.authConfig(); } catch (error) { toast(`Could not reach Weekwell: ${error.message}`); return; }
+  if (config.mode === 'misconfigured') {
+    showGate(`This server needs its login settings before it can show any data: ${config.missing.join(', ')}. See docs/DEPLOY.md.`, true);
+    $('gateNote').hidden = true;
+    return;
+  }
+  $('avatar').hidden = config.mode !== 'google';
+  if (config.mode === 'google') {
+    try {
+      const me = await api.me();
+      $('avatar').textContent = (me.name || me.email || '?').trim().charAt(0).toUpperCase();
+      $('signOut').hidden = false;
+    } catch (error) {
+      if (error.status === 401) return showGoogleSignIn(config.clientId);
+      toast(error.message);
+      return;
+    }
+    window.addEventListener('weekwell:signed-out', () => showGoogleSignIn(config.clientId), { once: true });
+  }
+  $('gate').hidden = true;
+  $('shell').hidden = false;
+  try { await loadEverything(); } catch (error) { if (error.status !== 401) toast(`Could not connect to the budget database: ${error.message}`); }
+}
+
+$('signOut').onclick = async () => {
+  try { await api.logout(); } catch { /* signed out anyway */ }
+  window.google?.accounts?.id?.disableAutoSelect?.();
+  location.replace('/');
+};
+
+if ('serviceWorker' in navigator && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+  navigator.serviceWorker.register('/sw.js').catch(() => { /* app still works without it */ });
+}
+
 $('today').textContent = longDate(today()).toUpperCase();
 wireEvents();
-loadEverything().catch((error) => toast(`Could not connect to the budget database: ${error.message}`));
+boot();

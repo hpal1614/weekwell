@@ -2,7 +2,8 @@
 
 Weekly budget planner with a Neon Postgres backend. Project source contains no personal budget figures. Local private seed data lives in `.private/initial-state.json` and stays out of Git.
 
-See [`docs/PLAN.md`](docs/PLAN.md) for the roadmap and the money approach behind it.
+- [`docs/PLAN.md`](docs/PLAN.md): the roadmap and the money approach behind it.
+- [`docs/DEPLOY.md`](docs/DEPLOY.md): put it online with Google sign-in (free), then install it on your phone or computer like an app.
 
 ## Requirements
 
@@ -26,7 +27,9 @@ npm install
 npm start
 ```
 
-`npm start` builds the page into `dist/`, applies any new SQL migrations, then serves the app at `http://127.0.0.1:3000`. The server binds to localhost because the API has no login. Add authentication before exposing it on a public network.
+`npm start` builds the page into `dist/`, applies any new SQL migrations, then serves the app at `http://127.0.0.1:3000`.
+
+Locally there's no login unless `GOOGLE_CLIENT_ID` is set. When hosted (Vercel), Google sign-in is **required**: the API refuses to serve data until `GOOGLE_CLIENT_ID`, `ALLOWED_EMAILS` and `SESSION_SECRET` are set. See `docs/DEPLOY.md`.
 
 ### Upgrading from an earlier version
 
@@ -59,6 +62,9 @@ Before converting, it stores an exact copy of your original data in the `weekwel
 | `src/forecast.js` | 12-month look-ahead: safe to save each pay, lowest point, savings split, wants and “Can I buy it now?” |
 | `src/app.js`, `src/api.js`, `src/index.html`, `src/styles.css` | The page |
 | `lib/app.js` | API routes |
+| `lib/auth.js` | Google sign-in, session cookie, security headers |
+| `api/index.js`, `vercel.json` | Vercel hosting |
+| `src/manifest.webmanifest`, `src/sw.js`, `src/icons/` | Install-as-app support. Icons are regenerated with `node scripts/icons.cjs`. |
 | `lib/db.js` | Database wrapper: Neon for real use, plain Postgres on localhost for tests |
 | `lib/migrate.js` | Runs every `migrations/NNNN_*.sql` file once, in order |
 

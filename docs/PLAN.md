@@ -192,9 +192,12 @@ If you still want it afterwards, it becomes a goal with a date. **Your locked sa
 - [ ] Read-only use. The token stays in `.env.local`, never in Git.
 - [ ] CommBank has no personal API. Import its CSV export instead.
 
-### Later
+### ✅ Access from anywhere (built)
 
-- Login before the app is ever hosted publicly. It stays on localhost until then.
+- [x] Google sign-in, limited to approved emails, with a 30-day signed session cookie. Fails closed when hosted without login settings.
+- [x] Vercel hosting config (free Hobby plan). Data stays in Neon.
+- [x] Installable as an app on iPhone, Android and desktop Chrome: icon, full screen, and fast loading. Budget data is never cached on the device.
+- [x] Step-by-step setup in `docs/DEPLOY.md`.
 
 ---
 
