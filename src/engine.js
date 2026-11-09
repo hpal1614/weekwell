@@ -394,6 +394,7 @@ export function validateState(state) {
     if (c.due != null && !isISODate(c.due)) errors.push(`commitments[${i}].due must be a date`);
     if (!isText(c.kind)) errors.push(`commitments[${i}].kind is invalid`);
     if (c.addedOn != null && !isISODate(c.addedOn)) errors.push(`commitments[${i}].addedOn must be a date`);
+    if (c.paid != null && (!isCents(c.paid) || c.paid < 0)) errors.push(`commitments[${i}].paid must be whole cents ≥ 0`);
   });
   if (state.incoming != null && !Array.isArray(state.incoming)) errors.push('incoming must be a list');
   if (state.merchantRules != null) {

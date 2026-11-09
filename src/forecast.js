@@ -324,10 +324,20 @@ export function paydayPlan(f, state) {
     for (const e of day.events) {
       if (e.kind === 'pay') continue;
       if (e.kind === 'bill-estimate') { undated += -e.amount; continue; }
-      (day.date === pay ? onPayday : beforeNext).push({ date: day.date, name: e.name, amount: -e.amount, kind: e.kind, id: e.id });
+      const c = e.id && state.commitments.find((x) => x.id === e.id);
+      (day.date === pay ? onPayday : beforeNext).push({ date: day.date, name: e.name, amount: -e.amount, kind: e.kind, id: e.id, auto: e.kind === 'bill', paid: c?.paid || 0 });
     }
   }
-  const spending = Math.round((f.spending.weekly * daysBetween(pay, next)) / 7);
+  const days = daysBetween(pay, next);
+  const spending = Math.round((f.spending.weekly * days) / 7);
+  // Each spending category's share of that, from your weekly limits.
+  const limitTotal = state.budgets.reduce((a, b) => a + (b.limit || 0), 0);
+  const spendingBreakdown = state.budgets.filter((b) => b.limit > 0).map((b) => ({
+    name: b.name, icon: b.icon, amount: limitTotal ? Math.round((spending * b.limit) / limitTotal) : 0,
+  }));
+  // Money already in your account the evening before pay arrives (today, if payday is today).
+  const payIndex = f.series.findIndex((x) => x.date === pay);
+  const startCash = payIndex > 0 ? f.series[payIndex - 1].balance : f.cash;
   const alloc = allocation(state, f.perPay);
   const moves = alloc.committed && alloc.overBy === 0
     ? { savings: alloc.savings, emergency: alloc.emergency, wants: alloc.wants }
@@ -337,9 +347,11 @@ export function paydayPlan(f, state) {
   const today = f.series[0].date;
   const dueAlready = state.commitments
     .filter((c) => !c.due || c.due < today)
-    .map((c) => ({ id: c.id, name: c.name, amount: c.amount, due: c.due, kind: c.kind }));
+    .map((c) => ({ id: c.id, name: c.name, amount: c.amount, due: c.due, kind: c.kind, paid: c.paid || 0 }));
   return {
     dueAlready,
+    startCash,
+    spendingBreakdown,
     pay,
     next,
     payAmount: state.pay.amount,

@@ -258,8 +258,8 @@ function renderSide(plan, now) {
           : `Due ${longDate(c.due)} · set aside ${formatMoney(need.perWeek)}/wk${need.savedSoFar ? ` · ≈${formatMoney(need.savedSoFar)} put aside so far` : ''}`;
         return `<div class="billrow">
           <span class="billicon">${c.kind === 'Afterpay' ? '↗' : c.kind === 'Friend' ? '☺' : '◷'}</span>
-          <button class="billmain" data-edit-com="${esc(c.id)}" title="Edit"><div class="billname">${esc(c.name)}${c.kind && c.kind !== c.name ? ` <span class="muted">· ${esc(c.kind)}</span>` : ''}</div><div class="billdue ${need.status === 'overdue' ? 'overdue' : ''}">${when}</div></button>
-          <span class="billcost">${formatMoney(c.amount)}<button class="iconbtn" data-paid-com="${esc(c.id)}" title="Mark paid" aria-label="Mark ${esc(c.name)} paid">✓</button><button class="iconbtn" data-del-com="${esc(c.id)}" title="Remove" aria-label="Remove ${esc(c.name)}">×</button></span>
+          <button class="billmain" data-edit-com="${esc(c.id)}" title="Edit"><div class="billname">${esc(c.name)}${c.kind && c.kind !== c.name ? ` <span class="muted">· ${esc(c.kind)}</span>` : ''}</div><div class="billdue ${need.status === 'overdue' ? 'overdue' : ''}">${when}${c.paid ? ` · ${formatMoney(c.paid)} paid so far` : ''}</div></button>
+          <span class="billcost">${formatMoney(c.amount)}<button class="checkbtn small" type="button" data-pay-com="${esc(c.id)}" aria-label="Pay ${esc(c.name)}">${CHECK_SVG}</button><button class="iconbtn" data-del-com="${esc(c.id)}" title="Remove" aria-label="Remove ${esc(c.name)}">×</button></span>
         </div>`;
       }).join('')
     : '<div class="empty">No one-off payments. Add invoices, Afterpay instalments or anything due on a date.</div>';
@@ -351,78 +351,189 @@ function renderForecast(f, now) {
   drawChart(f);
 }
 
+const CHECK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg>';
+
 function renderPaydayPlan(f) {
   const p = paydayPlan(f, state);
   if (!p) return '';
-  const paidBtn = (x) => (x.kind === 'commitment' || x.kind === 'afterpay' || x.kind === 'due') && x.id ? `<button class="paidbtn" data-paid-com="${esc(x.id)}" title="Mark paid">Paid ✓</button>` : '';
-  const rows = (list) => list.map((x) => `<li><span>${esc(x.name)}${x.date && x.date !== p.pay ? ` <span class="muted">· ${shortDate(x.date)}</span>` : ''}</span><span class="itemright">${paidBtn(x)}<b>${formatMoney(x.amount)}</b></span></li>`).join('');
-  const step = (n, title, total, body = '') => `<li class="step"><div class="stephead"><span class="stepno">${n}</span><span>${title}</span>${total !== null ? `<b>${formatMoney(total)}</b>` : ''}</div>${body}</li>`;
-  let n = 0;
-  const steps = [
-    step(++n, 'Pay arrives', p.payAmount),
-    p.onPayday.length ? step(++n, 'Pay on payday', p.onPaydayTotal, `<ul class="items">${rows(p.onPayday)}</ul>`) : '',
-    p.beforeNext.length ? step(++n, `Keep for these before your next pay (${shortDate(p.next)})`, p.beforeNextTotal, `<ul class="items">${rows(p.beforeNext)}</ul>`) : '',
-    p.undated ? step(++n, 'Keep for bills with no due date yet (weekly share)', p.undated, '<div class="fieldhint">Add due dates to these bills to see the exact days.</div>') : '',
-    step(++n, `Everyday spending until ${shortDate(p.next)} (groceries, transport, eating out…)`, p.spending),
-    step(++n, p.committed ? 'Move to your Up Savers' : 'Move to your Up Savers (suggested)', p.movesTotal,
-      p.movesTotal > 0
-        ? `<ul class="items"><li><span>${esc(potName('savings'))}</span><b>${formatMoney(p.moves.savings)}</b></li>${p.moves.emergency ? `<li><span>${esc(potName('emergency'))}</span><b>${formatMoney(p.moves.emergency)}</b></li>` : ''}${p.moves.wants ? `<li><span>Wants</span><b>${formatMoney(p.moves.wants)}</b></li>` : ''}</ul>${p.committed ? '' : '<button class="linkbtn" data-open="plan">Choose my split</button>'}`
-        : '<div class="fieldhint">Nothing is safe to move this pay. That’s OK: the plan covers everything else first.</div>'),
-    p.leftBeforeNext ? step(++n, `Left over on ${shortDate(p.leftBeforeNext.date)}, the night before your next pay`, p.leftBeforeNext.amount, `<div class="fieldhint">${p.leftBeforeNext.amount >= f.buffer ? 'That’s your safety buffer, untouched.' : `Below your ${formatMoney(f.buffer)} buffer. Go easy, or move less to your Savers this time.`}</div>`) : '',
-    step(++n, 'Then tap Update balances with what’s really in your accounts', null, '<button class="inlinebtn light" data-open="balances">Update balances</button>'),
-  ].join('');
-  const before = p.lowBeforePay ? `<div class="notice">Until payday: your lowest point is <b>${formatMoney(p.lowBeforePay.amount)}</b> on ${longDate(p.lowBeforePay.date)}. Keep spending light.</div>` : '';
+  const keep = p.beforeNextTotal + p.undated;
+  const left = p.leftBeforeNext ? p.leftBeforeNext.amount : 0;
+  const total = p.startCash + p.payAmount;
+  const segs = [
+    { key: 'now', label: 'Pay on payday', amount: p.onPaydayTotal },
+    { key: 'keep', label: 'Keep for bills', amount: keep },
+    { key: 'spend', label: 'Spending money', amount: p.spending },
+    { key: 'save', label: 'To your Savers', amount: p.movesTotal },
+    { key: 'left', label: 'Left over', amount: Math.max(0, left) },
+  ];
+  const bar = segs.filter((x) => x.amount > 0).map((x) => `<i class="seg seg-${x.key}" style="flex-grow:${x.amount}" title="${x.label}: ${formatMoney(x.amount)}"></i>`).join('');
+  const legend = segs.map((x) => `<li><span class="dot seg-${x.key}"></span><span>${x.label}</span><b>${formatMoney(x.amount)}</b></li>`).join('');
+
+  // One row per payment. One-offs get a round tick to mark them paid (fully or in part);
+  // bills that come out automatically just say "auto".
+  const row = (x) => {
+    const action = x.auto ? '<span class="autotag" title="Comes out automatically">auto</span>'
+      : x.id ? `<button class="checkbtn" type="button" data-pay-com="${esc(x.id)}" aria-label="Pay ${esc(x.name)}">${CHECK_SVG}</button>`
+        : '<span class="checkspacer"></span>';
+    const meta = [x.date && x.date !== p.pay ? shortDate(x.date) : '', x.paid ? `${formatMoney(x.paid)} paid so far` : '', x.note || ''].filter(Boolean).join(' · ');
+    return `<li class="checkrow">${action}<div class="checkmain"><div class="checkname">${esc(x.name)}</div>${meta ? `<div class="checkmeta">${esc(meta)}</div>` : ''}</div><b class="checkamt">${formatMoney(x.amount)}</b></li>`;
+  };
+  const section = (icon, title, amount, body, extra = '') => `<section class="pp-section"><header><span class="pp-icon" aria-hidden="true">${icon}</span><h3>${title}</h3><b>${formatMoney(amount)}</b></header>${body}${extra}</section>`;
+
   const due = p.dueAlready.length
-    ? `<div class="notice warn duecheck"><b>Already due: did you pay these?</b> Tap “Paid ✓” so they stop counting as owed.<ul class="items">${rows(p.dueAlready.map((x) => ({ ...x, kind: 'due', date: null, name: x.due ? `${x.name} · was due ${shortDate(x.due)}` : `${x.name} · no due date` })))}</ul></div>`
+    ? `<div class="notice warn duecheck"><b>Already due. Did you pay these?</b><div class="fieldhint">Tap the circle to mark one paid, fully or in part.</div><ul class="checklist">${p.dueAlready.map((x) => row({ ...x, date: null, note: x.due ? `was due ${shortDate(x.due)}` : 'no due date' })).join('')}</ul></div>`
     : '';
-  return `<div class="sectionhead"><h2>Payday plan · ${shortDate(p.pay)}</h2><span class="pill">${formatMoney(p.payAmount)} in</span></div>${due}${before}<ol class="steps">${steps}</ol>`;
+  const before = p.lowBeforePay ? `<div class="notice">Until payday your lowest point is <b>${formatMoney(p.lowBeforePay.amount)}</b> on ${longDate(p.lowBeforePay.date)}. Keep spending light.</div>` : '';
+  const sections = [
+    p.onPaydayTotal ? section('💳', 'Pay on payday', p.onPaydayTotal, `<ul class="checklist">${p.onPayday.map(row).join('')}</ul>`) : '',
+    keep ? section('🏠', `Keep for bills until ${shortDate(p.next)}`, keep, `<ul class="checklist">${p.beforeNext.map(row).join('')}${p.undated ? row({ name: 'Bills with no due date yet', amount: p.undated, auto: false, note: 'weekly share · add their due dates to see exact days' }) : ''}</ul>`) : '',
+    section('🛒', `Spending money until ${shortDate(p.next)}`, p.spending, `<ul class="checklist">${p.spendingBreakdown.map((b) => `<li class="checkrow"><span class="checkspacer emoji">${esc(b.icon)}</span><div class="checkmain"><div class="checkname">${esc(b.name)}</div></div><b class="checkamt">${formatMoney(b.amount)}</b></li>`).join('')}</ul>`),
+    section('🌱', p.committed ? 'Move to your Savers' : 'Move to your Savers (suggested)', p.movesTotal,
+      p.movesTotal > 0
+        ? `<ul class="checklist">${[['savings', p.moves.savings], ['emergency', p.moves.emergency]].filter(([, a]) => a > 0).map(([k, a]) => `<li class="checkrow"><span class="checkspacer emoji">→</span><div class="checkmain"><div class="checkname">${esc(potName(k))}</div></div><b class="checkamt">${formatMoney(a)}</b></li>`).join('')}${p.moves.wants ? `<li class="checkrow"><span class="checkspacer emoji">→</span><div class="checkmain"><div class="checkname">Wants</div></div><b class="checkamt">${formatMoney(p.moves.wants)}</b></li>` : ''}</ul>`
+        : '<p class="pp-empty">Nothing spare to move this pay. Everything else is covered first, and that’s fine.</p>',
+      p.committed || !p.movesTotal ? '' : '<button class="linkbtn" data-open="plan">Choose my split →</button>'),
+  ].join('');
+  const ok = left >= f.buffer;
+  const result = p.leftBeforeNext
+    ? `<div class="pp-result ${ok ? 'good' : left >= 0 ? 'tight' : 'bad'}"><div><div class="pp-result-label">Left on ${shortDate(p.leftBeforeNext.date)}, the night before your next pay</div><div class="pp-result-note">${ok ? 'Your safety buffer stays untouched. 👌' : left >= 0 ? `Below your ${formatMoney(f.buffer)} buffer, but you don’t run out. Go easy this fortnight.` : 'You’d run out before your next pay. Pay something later or move less to Savers.'}</div></div><b>${formatMoney(left)}</b></div>`
+    : '';
+  return `<div class="sectionhead"><div><h2>Payday plan · ${longDate(p.pay)}</h2><div class="pp-sub">${formatMoney(p.payAmount)} pay + ${formatMoney(p.startCash)} already in your account = <b>${formatMoney(total)}</b> to plan with</div></div></div>
+    ${due}${before}
+    <div class="pp-flow"><div class="pp-bar" role="img" aria-label="Where your money goes">${bar}</div><ul class="pp-legend">${legend}</ul></div>
+    ${sections}${result}
+    <button class="savebtn pp-done" type="button" data-open="balances">Done on payday? Update balances</button>`;
+}
+
+/** Pay a one-off payment in full or in part (the rest stays in the plan with a new date). */
+function payForm(c) {
+  if (!c) return;
+  const f = forecast(state, transactions, today());
+  const upcoming = (f.paydays || []).filter((d) => d > today());
+  // The rest defaults to the first payday after it was due (or after today).
+  const after = c.due && c.due > today() ? c.due : today();
+  const restDefault = upcoming.find((d) => d > after) || addDays(after, 14);
+  const half = Math.round(c.amount / 2);
+  $('modalTitle').textContent = `Pay: ${c.name.split(' (')[0]}`;
+  $('modalBody').innerHTML = `
+    <p class="pay-due">${formatMoney(c.amount)} to pay${c.paid ? ` <span class="muted">· ${formatMoney(c.paid)} paid already</span>` : ''}</p>
+    <div class="choice" role="group" aria-label="How much did you pay?">
+      <button type="button" class="choicebtn active" data-amt="${c.amount}"><span>Full</span><b>${formatMoney(c.amount)}</b></button>
+      <button type="button" class="choicebtn" data-amt="${half}"><span>Half</span><b>${formatMoney(half)}</b></button>
+      <button type="button" class="choicebtn" data-amt="custom"><span>Other</span><b>amount</b></button>
+    </div>
+    <div class="formrow"><label for="payAmt">Amount you paid</label><input id="payAmt" type="number" inputmode="decimal" step="0.01" min="0.01" value="${fromCents(c.amount).toFixed(2)}"></div>
+    <div class="formrow" id="restRow" hidden><label for="restDue">When will you pay the rest?</label><input id="restDue" type="date" min="${today()}" value="${restDefault}"><div class="fieldhint" id="restHint"></div></div>
+    <div class="formerror" id="formError"></div>
+    <button class="savebtn" id="paySave" type="button">Mark fully paid</button>`;
+  const input = $('payAmt');
+  const update = () => {
+    const amt = toCents(input.value);
+    const partial = amt > 0 && amt < c.amount;
+    $('restRow').hidden = !partial;
+    $('restHint').textContent = partial ? `The other ${formatMoney(c.amount - amt)} stays in your plan, due on that date.` : '';
+    $('paySave').textContent = partial ? `Paid ${formatMoney(amt)} now` : 'Mark fully paid';
+    for (const b of $('modalBody').querySelectorAll('.choicebtn')) b.classList.toggle('active', b.dataset.amt === String(amt) || (b.dataset.amt === 'custom' && amt !== c.amount && amt !== half));
+  };
+  for (const b of $('modalBody').querySelectorAll('.choicebtn')) {
+    b.onclick = () => {
+      if (b.dataset.amt === 'custom') { input.value = ''; input.focus(); } else input.value = fromCents(Number(b.dataset.amt)).toFixed(2);
+      update();
+    };
+  }
+  input.oninput = update;
+  $('paySave').onclick = async () => {
+    const amt = toCents(input.value);
+    if (!(amt > 0)) { $('formError').textContent = 'Enter how much you paid.'; return; }
+    const paidNow = Math.min(amt, c.amount);
+    if (c.kind === 'Afterpay') state.afterpayBalance = Math.max(0, state.afterpayBalance - paidNow);
+    if (amt >= c.amount) {
+      state.commitments = state.commitments.filter((x) => x !== c);
+      await saveState();
+      closeModal();
+      celebrate(`Paid ✓ ${c.name.split(' (')[0]}. One less thing to think about.`);
+    } else {
+      const rest = $('restDue').value;
+      if (!rest || rest < today()) { $('formError').textContent = 'Choose a date for the rest (today or later).'; return; }
+      c.amount -= paidNow;
+      c.paid = (c.paid || 0) + paidNow;
+      c.due = rest;
+      await saveState();
+      closeModal();
+      celebrate(`Paid ${formatMoney(paidNow)} ✓ The other ${formatMoney(c.amount)} is due ${shortDate(rest)}.`);
+    }
+  };
+  $('overlay').classList.add('open');
+  update();
 }
 
 function drawChart(f) {
   const wrap = $('chartWrap');
   if (!wrap) return;
-  const W = Math.max(280, wrap.clientWidth || 600), H = 220, padL = 52, padR = 12, padT = 18, padB = 24;
-  const pts = f.series;
-  const values = pts.map((p) => p.balance);
+  const W = Math.max(280, wrap.clientWidth || 600);
+  const narrow = W < 520;
+  const H = narrow ? 190 : 230, padL = narrow ? 50 : 56, padR = 10, padT = 18, padB = 26;
+  // One point per week: the lowest balance that week. That's the number that matters,
+  // and it avoids the saw-tooth of pay coming in and bills going out.
+  const weeks = [];
+  for (let i = 0; i < f.series.length; i += 7) {
+    const chunk = f.series.slice(i, i + 7);
+    const low = chunk.reduce((a, x) => (x.balance < a.balance ? x : a));
+    weeks.push({
+      start: chunk[0].date, balance: low.balance, lowDate: low.date,
+      events: chunk.flatMap((d) => d.events.filter((e) => e.kind !== 'bill-estimate').map((e) => ({ ...e, date: d.date }))),
+    });
+  }
+  const values = weeks.map((w) => w.balance);
   let lo = Math.min(0, f.buffer, ...values), hi = Math.max(f.buffer, ...values);
   if (hi === lo) hi = lo + 10000;
-  const span = hi - lo; lo -= span * 0.05; hi += span * 0.08;
-  const x = (i) => padL + (i / (pts.length - 1)) * (W - padL - padR);
+  const span = hi - lo; lo -= span * 0.06; hi += span * 0.1;
+  const x = (i) => padL + (i / (weeks.length - 1)) * (W - padL - padR);
   const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
-  const path = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.balance).toFixed(1)}`).join('');
-  const ticks = [lo + (hi - lo) * 0.1, (lo + hi) / 2, hi - (hi - lo) * 0.1].map((v) => Math.round(v / 10000) * 10000);
-  const months = pts.map((p, i) => ({ p, i })).filter(({ p }) => p.date.endsWith('-01'));
-  const minI = pts.findIndex((p) => p.date === f.minDate);
-  const minBelow = f.status === 'short';
-  const minLabelX = Math.min(Math.max(x(minI), padL + 40), W - padR - 80);
-  wrap.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Projected balance over the next 12 months. Lowest ${formatMoney(f.min)} on ${longDate(f.minDate)}.">
-    ${ticks.map((t) => `<line class="grid" x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}"/><text class="axis" x="${padL - 6}" y="${y(t) + 3}" text-anchor="end">${t < 0 ? '-' : ''}$${Math.abs(t / 100) >= 1000 ? `${(Math.abs(t) / 100000).toFixed(1).replace(/\.0$/, '')}k` : Math.abs(t / 100)}</text>`).join('')}
-    ${months.map(({ p, i }) => `<text class="axis" x="${x(i)}" y="${H - 6}" text-anchor="middle">${shortDate(p.date).split(' ')[1]}</text>`).join('')}
+  const line = weeks.map((w, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(w.balance).toFixed(1)}`).join('');
+  const area = `${line}L${x(weeks.length - 1).toFixed(1)},${(H - padB).toFixed(1)}L${x(0).toFixed(1)},${(H - padB).toFixed(1)}Z`;
+  const money = (v) => `${v < 0 ? '-' : ''}$${Math.abs(v) >= 100000 ? `${(Math.abs(v) / 100000).toFixed(1).replace(/\.0$/, '')}k` : Math.round(Math.abs(v) / 100)}`;
+  const ticks = [...new Set([lo + (hi - lo) * 0.12, (lo + hi) / 2, hi - (hi - lo) * 0.12].map((v) => Math.round(v / 10000) * 10000))];
+  const monthMarks = [];
+  weeks.forEach((w, i) => { const m = w.start.slice(0, 7); if (i > 0 && m !== weeks[i - 1].start.slice(0, 7)) monthMarks.push({ i, label: shortDate(w.start).split(' ')[1] }); });
+  const shownMonths = monthMarks.filter((_, k) => !narrow || k % 2 === 0);
+  const minI = Math.max(0, weeks.findIndex((w) => w.start <= f.minDate && f.minDate <= addDays(w.start, 6)));
+  const below = f.status === 'short';
+  const lx = x(minI);
+  wrap.innerHTML = `<div class="charthead">Your balance, week by week <span class="muted">· lowest point each week</span><div class="chartlow ${below ? 'over' : ''}"><span class="lowdot"></span>Lowest ahead: <b>${formatMoney(f.min)}</b> on ${longDate(f.minDate)}</div></div>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Lowest balance each week for the next 12 months. Lowest ${formatMoney(f.min)} on ${longDate(f.minDate)}.">
+    <defs><linearGradient id="areaFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#6f8f58" stop-opacity=".28"/><stop offset="100%" stop-color="#6f8f58" stop-opacity="0"/></linearGradient></defs>
+    ${ticks.map((t) => `<line class="grid" x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}"/><text class="axis" x="${padL - 6}" y="${y(t) + 4}" text-anchor="end">${money(t)}</text>`).join('')}
+    ${shownMonths.map(({ i, label }) => `<text class="axis" x="${x(i)}" y="${H - 7}" text-anchor="middle">${label}</text>`).join('')}
+    <path class="area" d="${area}" fill="url(#areaFill)"/>
     <line class="bufferline" x1="${padL}" x2="${W - padR}" y1="${y(f.buffer)}" y2="${y(f.buffer)}"/>
-    <text class="label muted" x="${padL + 4}" y="${y(f.buffer) - 5}" text-anchor="start">buffer ${formatMoney(f.buffer)}</text>
-    <path class="line" d="${path}"/>
-    <circle cx="${x(minI)}" cy="${y(f.min)}" r="5" fill="${minBelow ? 'var(--over)' : 'var(--forest)'}" stroke="var(--white)" stroke-width="2"/>
-    <text class="label ${minBelow ? 'over' : ''}" x="${minLabelX}" y="${Math.min(y(f.min) + 18, H - padB - 2)}" text-anchor="middle">lowest ${formatMoney(f.min)} · ${shortDate(f.minDate)}</text>
+    <text class="label muted" x="${W - padR}" y="${y(f.buffer) - 6}" text-anchor="end">buffer ${money(f.buffer)}</text>
+    <path class="line" d="${line}"/>
+    <circle cx="${lx}" cy="${y(weeks[minI].balance)}" r="6" fill="${below ? 'var(--over)' : 'var(--forest)'}" stroke="var(--card)" stroke-width="2.5"/>
     <line class="crosshair" id="crosshair" y1="${padT}" y2="${H - padB}" x1="0" x2="0" visibility="hidden"/>
+    <circle id="hoverDot" r="5" fill="var(--forest)" stroke="var(--card)" stroke-width="2" visibility="hidden"/>
     <rect x="${padL}" y="0" width="${W - padL - padR}" height="${H}" fill="transparent" id="chartHit"/>
   </svg><div class="charttip" id="chartTip"></div>`;
-  const hit = $('chartHit'), tip = $('chartTip'), cross = $('crosshair');
+  const hit = $('chartHit'), tip = $('chartTip'), cross = $('crosshair'), dot = $('hoverDot');
   const show = (clientX) => {
     const rect = wrap.querySelector('svg').getBoundingClientRect();
     const px = ((clientX - rect.left) / rect.width) * W;
-    const i = Math.max(0, Math.min(pts.length - 1, Math.round(((px - padL) / (W - padL - padR)) * (pts.length - 1))));
-    const p = pts[i];
-    cross.setAttribute('x1', x(i)); cross.setAttribute('x2', x(i)); cross.setAttribute('visibility', 'visible');
-    const ev = p.events.filter((e) => e.kind !== 'bill-estimate');
-    tip.innerHTML = `${longDate(p.date)}<br>Balance <b>${formatMoney(p.balance)}</b>${ev.map((e) => `<br>${esc(e.name)} <b>${e.amount > 0 ? '+' : '−'}${formatMoney(Math.abs(e.amount))}</b>`).join('')}`;
+    const i = Math.max(0, Math.min(weeks.length - 1, Math.round(((px - padL) / (W - padL - padR)) * (weeks.length - 1))));
+    const w = weeks[i];
+    for (const el of [cross, dot]) el.setAttribute('visibility', 'visible');
+    cross.setAttribute('x1', x(i)); cross.setAttribute('x2', x(i));
+    dot.setAttribute('cx', x(i)); dot.setAttribute('cy', y(w.balance));
+    const outs = w.events.filter((e) => e.amount < 0).sort((a, b) => a.amount - b.amount);
+    const ins = w.events.filter((e) => e.amount > 0);
+    tip.innerHTML = `<div class="tiphead">Week of ${shortDate(w.start)}</div>Lowest <b>${formatMoney(w.balance)}</b>${ins.map((e) => `<br>+ ${esc(e.name)} <b>${formatMoney(e.amount)}</b>`).join('')}${outs.slice(0, 4).map((e) => `<br>− ${esc(e.name.split(' (')[0])} <b>${formatMoney(-e.amount)}</b>`).join('')}${outs.length > 4 ? `<br><span class="muted">and ${outs.length - 4} more</span>` : ''}`;
     const left = (x(i) / W) * rect.width;
-    tip.style.left = `${Math.min(Math.max(left - 75, 0), rect.width - 160)}px`;
-    tip.style.top = '-8px';
+    tip.style.left = `${Math.min(Math.max(left - 90, 0), rect.width - 190)}px`;
     tip.classList.add('show');
   };
+  const hide = () => { tip.classList.remove('show'); for (const el of [cross, dot]) el.setAttribute('visibility', 'hidden'); };
   hit.addEventListener('pointermove', (e) => show(e.clientX));
   hit.addEventListener('pointerdown', (e) => show(e.clientX));
-  hit.addEventListener('pointerleave', () => { tip.classList.remove('show'); cross.setAttribute('visibility', 'hidden'); });
+  hit.addEventListener('pointerleave', hide);
 }
 
 // ---------- pots & wants ----------
@@ -988,6 +1099,7 @@ function wireEvents() {
       if (c && confirm(`Remove “${c.name}” without marking it paid?`)) { state.commitments = state.commitments.filter((x) => x !== c); saveState(); }
     }
     if (d.open) ({ balances: balancesForm, settings: settingsForm, plan: planForm })[d.open]?.();
+    if (d.payCom) payForm(find(state.commitments, d.payCom));
     if (d.editWant) wantForm(find(state.wants, d.editWant));
     if (d.editIncoming) incomingForm(find(state.incoming || [], d.editIncoming));
     if (d.delIncoming) {
@@ -1035,7 +1147,8 @@ function setTab(name, fromTap) {
     if (location.hash.slice(1) !== tab) history.replaceState(null, '', tab === 'home' ? location.pathname : `#${tab}`);
     window.scrollTo({ top: 0 });
     // Slide the new tab's cards in, one after another.
-    document.querySelectorAll(`[data-tab~="${tab}"]`).forEach((el, i) => {
+    // Only the cards, never <body> (it carries data-tab too): animating body breaks the fixed tab bar.
+    document.querySelectorAll(`#shell [data-tab~="${tab}"]`).forEach((el, i) => {
       el.classList.remove('enter');
       void el.offsetWidth;
       el.style.setProperty('--d', `${i * 60}ms`);
