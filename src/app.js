@@ -4,7 +4,7 @@ import {
   fromCents, inRange, longDate, newId, perWeek, shortDate, spentByCategory, toCents, todayISO,
   weekLabel, weekStart, weeklyHistory, weeklyPlan, weeksPerPay,
 } from './engine.js';
-import { allocation, canBuyNow, coolingDays, emergencyFull, forecast, suggestSplit, wantsTimeline } from './forecast.js';
+import { allocation, canBuyNow, coolingDays, emergencyFull, forecast, paydayPlan, suggestSplit, wantsTimeline } from './forecast.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -260,7 +260,7 @@ function renderForecast(f, now) {
       <div class="stat ${f.status === 'short' ? 'warn' : ''}"><label>Lowest point ahead</label><strong>${formatMoney(f.min)}</strong><div class="sub">around ${longDate(f.minDate)}, after saving</div></div>
       <div class="stat"><label>Money now</label><strong>${formatMoney(f.cash)}</strong><div class="sub">${f.belowBufferUntilPayday ? `building up to a ${formatMoney(f.buffer)} buffer from payday` : `${formatMoney(f.buffer)} of it always stays as your buffer`}</div></div>
     </div>
-    ${short}${over}${split}${stale}${spendNote}
+    ${short}${over}${renderPaydayPlan(f)}${split}${stale}${spendNote}
     <div class="chartwrap" id="chartWrap"></div>
     <details class="upcoming"><summary>Coming out in the next 8 weeks (${f.upcoming.length})</summary>
       <div class="tablewrap"><table class="history"><thead><tr><th>Date</th><th>What</th><th class="num">Amount</th></tr></thead><tbody>
@@ -269,6 +269,29 @@ function renderForecast(f, now) {
       ${state.bills.some((b) => !b.nextDue) ? '<div class="hint">Bills without a due date are counted as a weekly share instead of on a date.</div>' : ''}
     </details>`;
   drawChart(f);
+}
+
+function renderPaydayPlan(f) {
+  const p = paydayPlan(f, state);
+  if (!p) return '';
+  const rows = (list) => list.map((x) => `<li><span>${esc(x.name)}${x.date !== p.pay ? ` <span class="muted">· ${shortDate(x.date)}</span>` : ''}</span><b>${formatMoney(x.amount)}</b></li>`).join('');
+  const step = (n, title, total, body = '') => `<li class="step"><div class="stephead"><span class="stepno">${n}</span><span>${title}</span>${total !== null ? `<b>${formatMoney(total)}</b>` : ''}</div>${body}</li>`;
+  let n = 0;
+  const steps = [
+    step(++n, 'Pay arrives', p.payAmount),
+    p.onPayday.length ? step(++n, 'Pay on payday', p.onPaydayTotal, `<ul class="items">${rows(p.onPayday)}</ul>`) : '',
+    p.beforeNext.length ? step(++n, `Keep for these before your next pay (${shortDate(p.next)})`, p.beforeNextTotal, `<ul class="items">${rows(p.beforeNext)}</ul>`) : '',
+    p.undated ? step(++n, 'Keep for bills with no due date yet (weekly share)', p.undated, '<div class="fieldhint">Add due dates to these bills to see the exact days.</div>') : '',
+    step(++n, `Everyday spending until ${shortDate(p.next)} (groceries, transport, eating out…)`, p.spending),
+    step(++n, p.committed ? 'Move to your Up Savers' : 'Move to your Up Savers (suggested)', p.movesTotal,
+      p.movesTotal > 0
+        ? `<ul class="items"><li><span>Locked savings</span><b>${formatMoney(p.moves.savings)}</b></li>${p.moves.emergency ? `<li><span>Emergency fund</span><b>${formatMoney(p.moves.emergency)}</b></li>` : ''}${p.moves.wants ? `<li><span>Wants</span><b>${formatMoney(p.moves.wants)}</b></li>` : ''}</ul>${p.committed ? '' : '<button class="linkbtn" data-open="plan">CHOOSE MY SPLIT</button>'}`
+        : '<div class="fieldhint">Nothing is safe to move this pay. That’s OK: the plan covers everything else first.</div>'),
+    p.leftBeforeNext ? step(++n, `Left over on ${shortDate(p.leftBeforeNext.date)}, the night before your next pay`, p.leftBeforeNext.amount, `<div class="fieldhint">${p.leftBeforeNext.amount >= f.buffer ? 'That’s your safety buffer, untouched.' : `Below your ${formatMoney(f.buffer)} buffer. Go easy, or move less to your Savers this time.`}</div>`) : '',
+    step(++n, 'Then tap Update balances with what’s really in your accounts', null, '<button class="inlinebtn light" data-open="balances">Update balances</button>'),
+  ].join('');
+  const before = p.lowBeforePay ? `<div class="fieldhint">Until payday: your lowest point is ${formatMoney(p.lowBeforePay.amount)} on ${longDate(p.lowBeforePay.date)}. Keep spending light.</div>` : '';
+  return `<details class="payday" open><summary>Payday plan · ${longDate(p.pay)}</summary>${before}<ol class="steps">${steps}</ol></details>`;
 }
 
 function drawChart(f) {

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { defaultState } from '../src/engine.js';
 import {
   addMonths, allocation, buildCashflow, canBuyNow, coolingDays, forecast, maxSafePerPay, nextPayday,
-  occurrences, simulate, suggestSplit, wantsTimeline,
+  occurrences, paydayPlan, simulate, suggestSplit, wantsTimeline,
 } from '../src/forecast.js';
 
 const TODAY = '2026-11-09';
@@ -150,4 +150,34 @@ test('"Can I buy it now?" protects committed savings', () => {
 
   const saved = { ...ddj, saved: 100000 };
   assert.equal(canBuyNow(s, [], TODAY, saved).answer, 'yes-saved');
+});
+
+test('payday plan: what is due on payday, what to keep until the next pay, and what to move', () => {
+  const s = example({ pay: { amount: 200000, period: 'fortnightly', nextPayday: '2026-11-13' } });
+  s.bills = [
+    { id: 'rent', name: 'Rent', icon: '⌂', amount: 60000, period: 'fortnightly', nextDue: '2026-11-20' },
+    { id: 'gym', name: 'Gym', icon: '↻', amount: 2000, period: 'weekly', nextDue: '2026-11-13' },
+    { id: 'ai', name: 'Subscription', icon: '↻', amount: 5200, period: 'annual', nextDue: null },
+  ];
+  s.commitments = [
+    { id: 'w', name: 'Water', amount: 10000, due: '2026-11-13', kind: 'Bill', addedOn: TODAY },
+    { id: 'late', name: 'After next pay', amount: 5000, due: '2026-11-28', kind: 'Bill', addedOn: TODAY },
+  ];
+  s.balances = { everyday: 30000, updatedOn: TODAY };
+  s.pots.buffer = { target: 20000, balance: 0 };
+  const f = forecast(s, [], TODAY);
+  const p = paydayPlan(f, s);
+  assert.equal(p.pay, '2026-11-13');
+  assert.equal(p.next, '2026-11-27');
+  assert.deepEqual(p.onPayday.map((x) => [x.name, x.amount]), [['Gym', 2000], ['Water', 10000]]);
+  assert.deepEqual(p.beforeNext.map((x) => [x.name, x.date]).sort(), [['Gym', '2026-11-20'], ['Rent', '2026-11-20']]);
+  assert.equal(p.beforeNextTotal, 62000);
+  assert.ok(!p.beforeNext.some((x) => x.name === 'After next pay'));
+  assert.equal(p.undated, 200); // $52/yr subscription -> $1/week x 2 weeks
+  assert.equal(p.spending, 50000); // $250/week x 2 weeks
+  assert.equal(p.movesTotal, f.perPay);
+  assert.equal(p.committed, false);
+  assert.ok(p.lowBeforePay === null || p.lowBeforePay.date < '2026-11-13');
+  assert.equal(p.leftBeforeNext.date, '2026-11-26');
+  assert.ok(p.leftBeforeNext.amount >= s.pots.buffer.target);
 });

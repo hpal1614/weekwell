@@ -304,3 +304,50 @@ export function canBuyNow(state, transactions, today, want) {
   const fasterOn = wantsTimeline(order, base.paydays, wantsPerPay + extra).get(want.id);
   return { answer: 'not-yet', ...result, readyOn, fasterOn, wantsPerPay };
 }
+
+// ---------- payday plan ----------
+
+/**
+ * What to do with the next pay, step by step:
+ * what's due on payday, what to keep for the days until the following pay,
+ * everyday spending for that stretch, and what to move to each Saver.
+ */
+export function paydayPlan(f, state) {
+  if (!f.paydays || !f.paydays.length) return null;
+  const pay = f.paydays[0];
+  const next = f.paydays[1] || addDays(pay, 14);
+  const onPayday = [];
+  const beforeNext = [];
+  let undated = 0;
+  for (const day of f.flow.days) {
+    if (day.date < pay || day.date >= next) continue;
+    for (const e of day.events) {
+      if (e.kind === 'pay') continue;
+      if (e.kind === 'bill-estimate') { undated += -e.amount; continue; }
+      (day.date === pay ? onPayday : beforeNext).push({ date: day.date, name: e.name, amount: -e.amount });
+    }
+  }
+  const spending = Math.round((f.spending.weekly * daysBetween(pay, next)) / 7);
+  const alloc = allocation(state, f.perPay);
+  const moves = alloc.committed && alloc.overBy === 0
+    ? { savings: alloc.savings, emergency: alloc.emergency, wants: alloc.wants }
+    : suggestSplit(state, f.perPay);
+  const sum = (list) => list.reduce((s, x) => s + x.amount, 0);
+  return {
+    pay,
+    next,
+    payAmount: state.pay.amount,
+    onPayday,
+    onPaydayTotal: sum(onPayday),
+    beforeNext,
+    beforeNextTotal: sum(beforeNext),
+    undated,
+    spending,
+    moves,
+    movesTotal: moves.savings + moves.emergency + moves.wants,
+    committed: alloc.committed && alloc.overBy === 0,
+    lowBeforePay: f.minDate && f.minDate < pay ? { amount: f.min, date: f.minDate } : null,
+    // Forecast balance the night before the following pay, after following the plan.
+    leftBeforeNext: (() => { const d = f.series.find((x) => x.date === addDays(next, -1)); return d ? { amount: d.balance, date: d.date } : null; })(),
+  };
+}
