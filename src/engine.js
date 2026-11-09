@@ -404,6 +404,9 @@ export function validateState(state) {
   }
   if (state.learning != null && (typeof state.learning !== 'object' || (state.learning.seen != null && !Array.isArray(state.learning.seen)))) errors.push('learning is invalid');
   if (state.invest != null && (typeof state.invest !== 'object' || Array.isArray(state.invest))) errors.push('invest is invalid');
+  if (state.assets != null && (typeof state.assets !== 'object' || (state.assets.super != null && !isCents(state.assets.super)))) errors.push('assets is invalid');
+  if (state.checkins != null && (!Array.isArray(state.checkins) || state.checkins.length > 240
+    || state.checkins.some((c) => !c || !isISODate(c.date) || !Number.isInteger(c.net)))) errors.push('checkins are invalid');
   if (state.merchantRules != null) {
     const rules = state.merchantRules;
     if (typeof rules !== 'object' || Array.isArray(rules) || Object.keys(rules).length > 1000

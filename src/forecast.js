@@ -466,3 +466,56 @@ export function investReadiness(state, f, today, extras = {}) {
 function dollars(cents) {
   return `$${Math.round(cents / 100).toLocaleString('en-AU')}`;
 }
+
+// ---------- net worth and the monthly check-in ----------
+
+/**
+ * What you own minus what you owe, right now.
+ * Owe = Afterpay still to pay + money owed to friends (debts). Future costs like PR fees
+ * aren't debts yet, so they don't count here (the plan already saves for them).
+ */
+export function netWorth(state) {
+  const sum = (list) => list.reduce((a, c) => a + c.amount, 0);
+  const own = [
+    { key: 'everyday', label: 'Everyday accounts', amount: state.balances?.everyday || 0 },
+    { key: 'buffer', label: state.pots.buffer.name || 'Bills & buffer', amount: state.pots.buffer.balance || 0 },
+    { key: 'emergency', label: state.pots.emergency.name || 'Emergency fund', amount: state.pots.emergency.balance || 0 },
+    { key: 'savings', label: state.pots.savings.name || 'Savings', amount: state.pots.savings.balance || 0 },
+    { key: 'wants', label: 'Saved for wants', amount: state.wants.reduce((a, w) => a + (w.saved || 0), 0) },
+    { key: 'super', label: 'Super', amount: state.assets?.super || 0 },
+  ].filter((x) => x.amount !== 0 || x.key === 'everyday');
+  const afterpay = Math.max(state.afterpayBalance || 0, sum(state.commitments.filter((c) => c.kind === 'Afterpay')));
+  const owe = [
+    { key: 'afterpay', label: 'Afterpay', amount: afterpay },
+    { key: 'friends', label: 'Owed to friends', amount: sum(state.commitments.filter((c) => c.kind === 'Friend')) },
+  ].filter((x) => x.amount > 0);
+  const ownTotal = sum(own);
+  const oweTotal = sum(owe);
+  return { own, owe, ownTotal, oweTotal, net: ownTotal - oweTotal };
+}
+
+/** Spending in the last 4 weeks by category, against what your weekly limits allowed. */
+export function monthReview(state, transactions, today) {
+  const from = addDays(today, -27);
+  const inRange = transactions.filter((t) => t.date >= from && t.date <= today);
+  const rows = state.budgets.map((b) => ({
+    name: b.name,
+    icon: b.icon,
+    spent: inRange.filter((t) => t.category === b.name).reduce((a, t) => a + t.amount, 0),
+    limit: (b.limit || 0) * 4,
+  }));
+  const known = new Set(state.budgets.map((b) => b.name));
+  const other = inRange.filter((t) => !known.has(t.category)).reduce((a, t) => a + t.amount, 0);
+  if (other) rows.push({ name: 'Other categories', icon: '•', spent: other, limit: 0 });
+  const total = rows.reduce((a, r) => a + r.spent, 0);
+  const limitTotal = rows.reduce((a, r) => a + r.limit, 0);
+  return { from, to: today, rows: rows.filter((r) => r.spent || r.limit), total, limitTotal, count: inRange.length };
+}
+
+/** The check-in is due once a month (and straight away if you've never done one). */
+export function checkinDue(state, today) {
+  const last = state.checkins?.length ? state.checkins[state.checkins.length - 1].date : null;
+  if (!last) return { due: true, first: true };
+  const days = daysBetween(last, today);
+  return { due: days >= 28, days, last };
+}

@@ -5,7 +5,7 @@ import {
   weekLabel, weekStart, weeklyHistory, weeklyPlan, weeksPerPay,
 } from './engine.js';
 import { LESSONS, nextLesson, shouldShowLesson } from './lessons.js';
-import { allocation, canBuyNow, coolingDays, emergencyFull, forecast, investReadiness, paydayPlan, suggestSplit, wantsTimeline, windfallSplit } from './forecast.js';
+import { allocation, canBuyNow, checkinDue, coolingDays, emergencyFull, forecast, investReadiness, monthReview, netWorth, paydayPlan, suggestSplit, wantsTimeline, windfallSplit } from './forecast.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -242,6 +242,8 @@ function render() {
   renderIncoming(f);
   renderWants(f, now);
   renderInvest(f);
+  renderWorth();
+  renderCheckinCard();
   renderTip(plan, f);
 }
 
@@ -680,6 +682,7 @@ function investExtras() {
 function renderInvest(f) {
   const r = investReadiness(state, f, today(), investExtras());
   $('investPill').textContent = `${r.done} of ${r.total}`;
+  celebrateInvestSteps(r);
   const rows = r.steps.map((st, i) => {
     const bar = st.progress && !st.done ? `${meter(st.progress[0], st.progress[1])}<div class="ivsub">${st.count ? `${st.progress[0]} of ${st.progress[1]}` : `${formatMoney(st.progress[0])} of ${formatMoney(st.progress[1])}`}</div>` : '';
     const left = st.left && !st.done ? `<div class="ivsub">${formatMoney(st.left)} to go</div>` : '';
@@ -696,6 +699,107 @@ function renderInvest(f) {
     <p class="sidecopy small">Based on the order Moneysmart and most Australian guides suggest. General information, not personal financial advice.</p>`;
 }
 
+/**
+ * Remember which investing steps are done, and celebrate each new one
+ * (the first time it's seen, steps already done are recorded quietly).
+ */
+function celebrateInvestSteps(r) {
+  const doneKeys = r.steps.filter((x) => x.done).map((x) => x.key);
+  const before = state.invest?.doneSteps;
+  const same = Array.isArray(before) && before.length === doneKeys.length && before.every((k) => doneKeys.includes(k));
+  if (same) return;
+  const newly = Array.isArray(before) ? r.steps.filter((x) => x.done && !before.includes(x.key)) : [];
+  state.invest = { ...state.invest, doneSteps: doneKeys };
+  setTimeout(() => saveState(), 0);
+  if (!newly.length) return;
+  setTimeout(() => celebrate(r.ready
+    ? 'All 8 steps done. You’re ready to start investing 🌱 See the Savings tab.'
+    : `Investing step done ✓ ${newly[0].title}. ${r.done} of ${r.total}.`, { undo: undoStack.length > 0 }), 400);
+}
+
+// ---------- net worth & monthly check-in ----------
+
+function renderWorth() {
+  const w = netWorth(state);
+  const list = state.checkins || [];
+  // Compare with the latest check-in before today (today's own check-in would always show $0).
+  const earlier = list.filter((c) => c.date < today());
+  const last = earlier[earlier.length - 1];
+  const doneToday = list.length && list[list.length - 1].date === today();
+  const change = last ? w.net - last.net : null;
+  $('worthNumber').textContent = formatMoney(w.net);
+  $('worthNumber').classList.toggle('neg', w.net < 0);
+  const lines = (items) => items.map((x) => `<li><span>${esc(x.label)}</span><b>${formatMoney(x.amount)}</b></li>`).join('');
+  const recent = earlier.slice(-6);
+  const max = Math.max(1, ...recent.map((c) => Math.abs(c.net)), Math.abs(w.net));
+  const bars = recent.length ? `<div class="worthbars" aria-label="Net worth at each check-in">${[...recent.map((c) => ({ label: shortDate(c.date), net: c.net })), { label: 'Now', net: w.net }]
+    .map((c) => `<div class="wb"><i class="${c.net < 0 ? 'neg' : ''}" style="height:${Math.max(4, Math.round((Math.abs(c.net) / max) * 56))}px"></i><span>${esc(c.label)}</span></div>`).join('')}</div>` : '';
+  const sub = change !== null
+    ? `${change >= 0 ? '▲' : '▼'} ${formatMoney(Math.abs(change))} since your check-in on ${shortDate(last.date)}`
+    : doneToday ? `Tracking started today. Next check-in around ${shortDate(addDays(today(), 28))}.`
+      : 'Do your first monthly check-in to start tracking it.';
+  $('worthBody').innerHTML = `
+    <div class="worthsub">${sub}</div>
+    ${bars}
+    <div class="worthcols"><div><div class="worthhead">You own ${formatMoney(w.ownTotal)}</div><ul class="items">${lines(w.own)}</ul></div>
+    ${w.owe.length ? `<div><div class="worthhead">You owe ${formatMoney(w.oweTotal)}</div><ul class="items">${lines(w.owe)}</ul></div>` : ''}</div>
+    ${state.assets?.super ? '' : '<p class="sidecopy small">Add your super balance in the monthly check-in. It’s your money too.</p>'}`;
+}
+
+function renderCheckinCard() {
+  const due = checkinDue(state, today());
+  const card = $('checkinCard');
+  card.hidden = !due.due;
+  if (!due.due) return;
+  card.innerHTML = `<div class="checkinrow"><span class="checkinicon" aria-hidden="true">🗓️</span>
+    <div><b>${due.first ? 'Your first monthly check-in' : 'Time for your monthly check-in'}</b><span>2 minutes: update balances, see how the month went, track your net worth.</span></div>
+    <button type="button" class="smallbtn primary" data-checkin>Start</button></div>`;
+}
+
+function checkinSheet() {
+  const review = monthReview(state, transactions, today());
+  const fromUp = (name) => up.accounts?.find((a) => a.type === 'SAVER' && normaliseMerchant(a.name) === normaliseMerchant(name))?.balance;
+  const money = (id, label, value, hint = '') => `<div class="formrow"><label for="${id}">${esc(label)}</label><input id="${id}" type="number" inputmode="decimal" step="0.01" min="0" value="${value == null ? '' : fromCents(value).toFixed(2)}">${hint ? `<div class="fieldhint">${esc(hint)}</div>` : ''}</div>`;
+  const over = review.rows.filter((x) => x.limit && x.spent > x.limit);
+  const rows = review.rows.map((x) => `<li class="${x.limit && x.spent > x.limit ? 'over' : ''}"><span>${esc(x.icon)} ${esc(x.name)}</span><b>${formatMoney(x.spent)}${x.limit ? ` <small>of ${formatMoney(x.limit)}</small>` : ''}</b></li>`).join('');
+  $('modalTitle').textContent = 'Monthly check-in';
+  $('modalBody').innerHTML = `<form id="checkinForm" novalidate>
+    <div class="cistep"><span>1</span><b>How the last 4 weeks went</b></div>
+    <p class="hint">${review.count ? `You spent ${formatMoney(review.total)} on everyday things${review.limitTotal ? ` against ${formatMoney(review.limitTotal)} of limits` : ''}. ${over.length ? `Over in: ${over.map((x) => x.name).join(', ')}.` : 'Every category stayed within its limit. 👏'}` : 'No spending logged in the last 4 weeks yet.'}</p>
+    <ul class="items cireview">${rows}</ul>
+    <div class="cistep"><span>2</span><b>Your balances today</b></div>
+    ${money('ci_everyday', 'Everyday: CommBank + Up Spending', state.balances.everyday)}
+    <div class="two">${money('ci_emergency', `${potName('emergency')}`, fromUp(potName('emergency')) ?? state.pots.emergency.balance)}${money('ci_savings', `${potName('savings')}`, fromUp(potName('savings')) ?? state.pots.savings.balance)}</div>
+    ${money('ci_buffer', `${potName('buffer')}`, fromUp(potName('buffer')) ?? state.pots.buffer.balance)}
+    ${money('ci_super', 'Super balance (optional)', state.assets?.super ?? null, 'From your super fund’s app or myGov. Rough is fine.')}
+    <div class="cistep"><span>3</span><b>Anything new?</b></div>
+    <p class="hint">New subscription, Afterpay purchase or a cost coming up? Add it on the Bills tab after this, so the plan knows.</p>
+    <button class="savebtn" type="submit">Done ✓ Save check-in</button></form>`;
+  $('overlay').classList.add('open');
+  $('checkinForm').onsubmit = (e) => {
+    e.preventDefault();
+    const read = (id) => { const v = $(id).value.trim(); return v === '' ? null : Math.max(0, toCents(v)); };
+    const before = structuredClone(state);
+    const prev = netWorth(state).net;
+    const lastCheckin = state.checkins?.[state.checkins.length - 1];
+    state.balances = { everyday: read('ci_everyday') ?? state.balances.everyday, updatedOn: today() };
+    state.pots.emergency = { ...state.pots.emergency, balance: read('ci_emergency') ?? state.pots.emergency.balance };
+    state.pots.savings = { ...state.pots.savings, balance: read('ci_savings') ?? state.pots.savings.balance };
+    state.pots.buffer = { ...state.pots.buffer, balance: read('ci_buffer') ?? state.pots.buffer.balance };
+    const sup = read('ci_super');
+    state.assets = { ...state.assets, ...(sup !== null ? { super: sup, superOn: today() } : {}) };
+    const w = netWorth(state);
+    state.checkins = [...(state.checkins || []).filter((c) => c.date !== today()), { date: today(), net: w.net, own: w.ownTotal, owe: w.oweTotal, spent: review.total }].slice(-120);
+    saveState();
+    planUndo('Monthly check-in', before);
+    closeModal();
+    const diff = lastCheckin ? w.net - lastCheckin.net : w.net - prev;
+    celebrate(lastCheckin
+      ? `Check-in done ✓ Net worth ${formatMoney(w.net)} (${diff >= 0 ? 'up' : 'down'} ${formatMoney(Math.abs(diff))} since last time).`
+      : `First check-in done ✓ Net worth today: ${formatMoney(w.net)}. See you next month.`, { undo: true });
+  };
+}
+
 // ---------- phone menu ----------
 
 /** On phones the top bar only has room for Undo and one Menu button; everything else lives here. */
@@ -704,6 +808,7 @@ function menuSheet() {
     { id: 'openSettings', icon: '⚙️', label: 'Settings', note: 'Pay, payday, Saver names, daily lesson' },
     { id: 'openBackup', icon: '💾', label: 'Backup', note: 'Download or restore all your data' },
     { id: 'openLesson', icon: '📚', label: 'Today’s money lesson', note: 'One minute, then you’re done' },
+    { id: 'openCheckin', icon: '🗓️', label: 'Monthly check-in', note: 'Balances, how the month went, net worth', run: checkinSheet },
     { id: 'openInvest', icon: '🌱', label: 'Am I ready to invest?', note: 'Your checklist to start investing', run: () => { setTab('savings', true); setTimeout(() => $('investCard').scrollIntoView({ behavior: 'smooth', block: 'start' }), 120); } },
     ...(!$('signOut').hidden ? [{ id: 'signOut', icon: '↪', label: 'Sign out', note: '' }] : []),
   ];
@@ -1491,12 +1596,12 @@ function wireEvents() {
     if (d.open) ({ balances: balancesForm, settings: settingsForm, plan: planForm })[d.open]?.();
     if (d.payCom) payForm(find(state.commitments, d.payCom));
     if (t.id === 'openLesson') lessonDialog();
+    if ('checkin' in d) checkinSheet();
     if ('investSuper' in d) {
       const before = structuredClone(state);
       state.invest = { ...state.invest, superChecked: !state.invest?.superChecked };
       saveState();
       planUndo('Super checked', before);
-      if (state.invest.superChecked) celebrate('Super checked ✓ One more step done.', { undo: true });
     }
     if ('investLesson' in d) {
       const seen = new Set(state.learning?.seen || []);
