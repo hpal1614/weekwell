@@ -395,3 +395,74 @@ export function windfallSplit(state, amount, shortfall = 0) {
   const savings = Math.round((rest * DEFAULT_SPLIT.full.savings) / 100);
   return { keep, emergency, savings, wants: rest - savings };
 }
+
+// ---------- ready to invest? ----------
+
+/**
+ * "Am I ready to invest?" — the order most Australian guides agree on
+ * (Moneysmart, Passive Investing Australia, Bogleheads): a plan that works, no expensive
+ * debt, an emergency fund, money for big near-term costs kept in cash, then invest what's spare.
+ * `extras` carries what only you can tell the app: { superChecked, lessonsDone, lessonsTotal }.
+ */
+export function investReadiness(state, f, today, extras = {}) {
+  const weeklyBills = state.bills.reduce((a, b) => a + perWeek(b.amount, b.period), 0);
+  const weeklySpending = f?.spending?.weekly ?? state.budgets.reduce((a, b) => a + (b.limit || 0), 0);
+  const monthlyCosts = Math.round(((weeklyBills + weeklySpending) * 52) / 12);
+  const fullFund = Math.ceil((monthlyCosts * 3) / 10000) * 10000; // 3 months, rounded up to $100
+  const em = state.pots.emergency;
+  const isDebt = (c) => c.kind === 'Afterpay' || c.kind === 'Friend';
+  const debts = state.commitments.filter(isDebt).reduce((a, c) => a + c.amount, 0);
+  const horizon = addDays(today, 3 * 365);
+  const big = state.commitments.filter((c) => !isDebt(c) && c.amount >= 30000 && (!c.due || c.due <= horizon));
+  const bigLeft = big.reduce((a, c) => a + c.amount, 0);
+  const perPay = f?.perPay ?? 0;
+  const steps = [
+    {
+      key: 'plan', title: 'Your plan stays above your safety buffer', done: f?.status === 'ok',
+      detail: f?.status === 'ok'
+        ? 'Every known bill and cost for the next year is covered, with your buffer untouched.'
+        : `Right now the forecast dips ${dollars(f?.shortfall || 0)} below your ${dollars(state.pots.buffer.target)} buffer at its lowest point. This comes first.`,
+    },
+    {
+      key: 'debts', title: 'No Afterpay or money owed to friends', done: debts === 0 && !(state.afterpayBalance > 0),
+      left: Math.max(debts, state.afterpayBalance || 0),
+      detail: 'Paying these off is a guaranteed win. Investing while you owe money rarely makes sense.',
+    },
+    {
+      key: 'starter', title: `Starter emergency fund of ${dollars(em.target)}`, done: em.balance >= em.target,
+      progress: [em.balance, em.target], detail: `In ${em.name || 'your emergency Saver'}. Covers everyday surprises.`,
+    },
+    {
+      key: 'big', title: 'PR and other big costs paid', done: bigLeft === 0, left: bigLeft,
+      detail: big.length
+        ? `Still to pay: ${big.map((c) => c.name.split(' (')[0]).join(', ')}. Money you need within about 3 years stays in savings, never in shares.`
+        : 'Nothing big due in the next 3 years.',
+    },
+    {
+      key: 'full', title: `Emergency fund grows to 3 months of costs (${dollars(fullFund)})`, done: em.balance >= fullFund,
+      progress: [em.balance, fullFund], detail: `Your bills and spending come to about ${dollars(monthlyCosts)} a month.`,
+    },
+    {
+      key: 'spare', title: 'Money spare every pay', done: perPay >= 5000,
+      detail: perPay >= 5000 ? `About ${dollars(perPay)} a pay is safe to move.` : 'Once everything is covered, there needs to be at least $50 a pay spare.',
+    },
+    {
+      key: 'super', title: 'Super checked: one account, fees and insurance', done: !!extras.superChecked, manual: true,
+      detail: 'Log in to your super fund (or myGov) and check. Tick this when you have.',
+    },
+    {
+      key: 'learn', title: 'Investing lessons read', done: extras.lessonsTotal ? extras.lessonsDone >= extras.lessonsTotal : true,
+      progress: extras.lessonsTotal ? [extras.lessonsDone, extras.lessonsTotal] : null, count: true,
+      detail: 'The short lessons on index funds, risk, fees, tax and scams.',
+    },
+  ];
+  const done = steps.filter((s) => s.done).length;
+  const ready = done === steps.length;
+  // Start with about half of what's spare; the rest keeps growing savings and wants.
+  const suggest = ready ? Math.max(1000, Math.floor((perPay * 0.5) / 1000) * 1000) : 0;
+  return { steps, done, total: steps.length, ready, next: steps.find((s) => !s.done) || null, suggest, monthlyCosts, fullFund };
+}
+
+function dollars(cents) {
+  return `$${Math.round(cents / 100).toLocaleString('en-AU')}`;
+}

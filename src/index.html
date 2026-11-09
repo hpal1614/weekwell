@@ -36,6 +36,7 @@
       <button class="toplink" id="openBackup" type="button">Backup</button>
       <button class="toplink" id="openSettings" type="button">Settings</button>
       <button class="toplink" id="signOut" type="button" hidden>Sign out</button>
+      <button class="toplink menubtn" id="openMenu" type="button" aria-label="Menu: settings, backup, sign out"><span aria-hidden="true">☰</span> Menu</button>
       <div class="avatar" id="avatar" aria-hidden="true">•</div>
     </div>
   </header>
@@ -136,6 +137,12 @@
         <p class="sidecopy">Things you'd like to buy, in the order you want them. Tap the tag to change how much you want it, and ↑ ↓ to reorder. Money goes to #1 first. Each waits a cooling-off period, then gets a date when it's paid for without touching savings.</p>
         <div id="wantList"></div>
         <button class="addrow" id="addWant" type="button">＋ Add something you want</button>
+      </section>
+
+      <section class="sidecard investcard" data-tab="savings" id="investCard">
+        <div class="subhead"><h2>🌱 Ready to invest?</h2><span class="pill" id="investPill">0 of 8</span></div>
+        <p class="sidecopy">Investing is how money grows over the long run. Do these in order first, and Weekwell will tell you when it’s time.</p>
+        <div id="investBody"></div>
       </section>
 
       <section class="sidecard tipcard" data-tab="home">

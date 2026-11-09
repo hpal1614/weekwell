@@ -5,7 +5,7 @@ import {
   weekLabel, weekStart, weeklyHistory, weeklyPlan, weeksPerPay,
 } from './engine.js';
 import { LESSONS, nextLesson, shouldShowLesson } from './lessons.js';
-import { allocation, canBuyNow, coolingDays, emergencyFull, forecast, paydayPlan, suggestSplit, wantsTimeline, windfallSplit } from './forecast.js';
+import { allocation, canBuyNow, coolingDays, emergencyFull, forecast, investReadiness, paydayPlan, suggestSplit, wantsTimeline, windfallSplit } from './forecast.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -136,14 +136,38 @@ async function undoLast() {
   }
 }
 
+let saveGeneration = 0;
 function saveState() {
   render();
   const snapshot = structuredClone(state);
+  const generation = saveGeneration;
   saveQueue = saveQueue
-    .then(() => api.putState(snapshot))
-    .catch((error) => toast(`Save failed: ${error.message}`));
+    .then(() => (generation === saveGeneration ? api.putState(snapshot) : null))
+    .catch(async (error) => {
+      if (error.status === 409) {
+        // Changed on another device: take the newer data rather than overwrite it,
+        // and drop any saves still queued from the old copy.
+        saveGeneration++;
+        undoStack.length = 0;
+        refreshUndo();
+        try { await loadEverything({ quiet: true }); } catch { /* shown below */ }
+        toast(error.message);
+        return;
+      }
+      toast(`Save failed: ${error.message}`);
+    });
   return saveQueue;
 }
+
+// Coming back to the app after a while (it can stay open on a phone for days):
+// fetch the latest first, so an old copy never overwrites newer changes.
+let lastLoadedAt = Date.now();
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState !== 'visible' || !state || Date.now() - lastLoadedAt < 60000) return;
+  if ($('overlay').classList.contains('open')) return;
+  await saveQueue;
+  try { await loadEverything({ quiet: true }); } catch { /* keep what's on screen */ }
+});
 
 async function ensureTransactionsFrom(start) {
   if (loadedFrom && start >= loadedFrom) return;
@@ -217,6 +241,7 @@ function render() {
   renderPots(f);
   renderIncoming(f);
   renderWants(f, now);
+  renderInvest(f);
   renderTip(plan, f);
 }
 
@@ -643,6 +668,54 @@ function payForm(c) {
   update();
 }
 
+// ---------- ready to invest? ----------
+
+const INVEST_TOPICS = ['Investing'];
+function investExtras() {
+  const seen = new Set(state.learning?.seen || []);
+  const list = LESSONS.filter((l) => INVEST_TOPICS.includes(l.topic));
+  return { superChecked: !!state.invest?.superChecked, lessonsDone: list.filter((l) => seen.has(l.id)).length, lessonsTotal: list.length };
+}
+
+function renderInvest(f) {
+  const r = investReadiness(state, f, today(), investExtras());
+  $('investPill').textContent = `${r.done} of ${r.total}`;
+  const rows = r.steps.map((st, i) => {
+    const bar = st.progress && !st.done ? `${meter(st.progress[0], st.progress[1])}<div class="ivsub">${st.count ? `${st.progress[0]} of ${st.progress[1]}` : `${formatMoney(st.progress[0])} of ${formatMoney(st.progress[1])}`}</div>` : '';
+    const left = st.left && !st.done ? `<div class="ivsub">${formatMoney(st.left)} to go</div>` : '';
+    const extra = st.key === 'super' ? `<button type="button" class="smallbtn" data-invest-super>${st.done ? 'Undo tick' : 'I’ve checked it ✓'}</button>`
+      : st.key === 'learn' && !st.done ? '<button type="button" class="smallbtn" data-invest-lesson>Next investing lesson</button>' : '';
+    return `<li class="ivstep ${st.done ? 'done' : ''} ${r.next === st ? 'next' : ''}"><span class="ivbox" aria-hidden="true">${st.done ? CHECK_SVG : i + 1}</span>
+      <div><div class="ivtitle">${esc(st.title)}</div><div class="ivdetail">${esc(st.detail)}</div>${bar}${left}${extra}</div></li>`;
+  }).join('');
+  const head = r.ready
+    ? `<div class="ivready"><b>You’re ready to start investing 🌱</b><span>A good start: about <b>${formatMoney(r.suggest)}</b> a pay into a broad, low-cost index fund, every payday, and leave it for 5+ years. The rest keeps building your savings.</span></div>
+       <ol class="ivhow"><li>Pick a broker: compare fees and check it’s licensed by ASIC.</li><li>Choose one broad, diversified index ETF (low fees, thousands of companies).</li><li>Set a fixed amount each payday and don’t sell when prices drop.</li><li>Check the tax rules for your visa, and talk to a licensed adviser if unsure.</li></ol>`
+    : `<div class="ivnext">Not yet, and that’s normal. <b>Next step:</b> ${esc(r.next.title)}.</div>`;
+  $('investBody').innerHTML = `<div class="ckprogress"><i style="width:${Math.round((r.done / r.total) * 100)}%"></i></div>${head}<ol class="ivlist">${rows}</ol>
+    <p class="sidecopy small">Based on the order Moneysmart and most Australian guides suggest. General information, not personal financial advice.</p>`;
+}
+
+// ---------- phone menu ----------
+
+/** On phones the top bar only has room for Undo and one Menu button; everything else lives here. */
+function menuSheet() {
+  const items = [
+    { id: 'openSettings', icon: '⚙️', label: 'Settings', note: 'Pay, payday, Saver names, daily lesson' },
+    { id: 'openBackup', icon: '💾', label: 'Backup', note: 'Download or restore all your data' },
+    { id: 'openLesson', icon: '📚', label: 'Today’s money lesson', note: 'One minute, then you’re done' },
+    { id: 'openInvest', icon: '🌱', label: 'Am I ready to invest?', note: 'Your checklist to start investing', run: () => { setTab('savings', true); setTimeout(() => $('investCard').scrollIntoView({ behavior: 'smooth', block: 'start' }), 120); } },
+    ...(!$('signOut').hidden ? [{ id: 'signOut', icon: '↪', label: 'Sign out', note: '' }] : []),
+  ];
+  $('modalTitle').textContent = 'Menu';
+  $('modalBody').innerHTML = `<div class="menulist">${items.map((it) => `<button type="button" data-menu="${it.id}"><span class="mi" aria-hidden="true">${it.icon}</span><span>${esc(it.label)}${it.note ? `<small>${esc(it.note)}</small>` : ''}</span></button>`).join('')}</div>`;
+  for (const b of $('modalBody').querySelectorAll('[data-menu]')) {
+    const item = items.find((it) => it.id === b.dataset.menu);
+    b.onclick = () => { closeModal(); setTimeout(() => (item.run ? item.run() : $(item.id)?.click()), 60); };
+  }
+  $('overlay').classList.add('open');
+}
+
 // ---------- daily lesson ----------
 
 /** One short lesson, as a sheet that pops up the first time you open the app each day. */
@@ -657,6 +730,11 @@ function lessonDialog(lesson = nextLesson(state.learning), { daily = false } = {
       <h3>${esc(lesson.title)}</h3>
       <p>${esc(lesson.body)}</p>
       <div class="lessonaction"><b>Try this</b><span>${esc(lesson.action)}</span></div>
+      <button type="button" class="linkbtn lessonmorebtn" id="lessonMore" aria-expanded="false">Learn more ↓</button>
+      <div class="lessonmore" id="lessonMoreBody" hidden>
+        <ul>${(lesson.more || []).map((m) => `<li>${esc(m)}</li>`).join('')}</ul>
+        ${lesson.url ? `<a class="lessonlink" href="${esc(lesson.url)}" target="_blank" rel="noopener noreferrer">Read the full guide on ${esc(new URL(lesson.url).hostname.replace(/^www\./, ''))} ↗</a>` : ''}
+      </div>
       <div class="lessonprogress"><i style="width:${Math.round((seen.size / LESSONS.length) * 100)}%"></i></div>
       <div class="lessonmeta">${seen.size} of ${LESSONS.length} lessons learned · general info, not personal advice · more at moneysmart.gov.au</div>
       <div class="lessonbtns"><button type="button" class="laterbtn" id="lessonLater">Later</button><button type="button" class="savebtn" id="lessonGot">Got it ✓</button></div>
@@ -676,6 +754,12 @@ function lessonDialog(lesson = nextLesson(state.learning), { daily = false } = {
     });
   };
   $('lessonLater').onclick = closeModal;
+  $('lessonMore').onclick = () => {
+    const body = $('lessonMoreBody');
+    body.hidden = !body.hidden;
+    $('lessonMore').setAttribute('aria-expanded', String(!body.hidden));
+    $('lessonMore').textContent = body.hidden ? 'Learn more ↓' : 'Show less ↑';
+  };
 }
 
 function maybeDailyLesson() {
@@ -1333,7 +1417,7 @@ function wireEvents() {
   // Coming back to the app (e.g. from the home screen) pulls in new Up purchases.
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && up.configured && (!up.lastSync || Date.now() - up.lastSync > 60000)) syncUp({ quiet: true }); });
   onTap($('tabAdd'), () => spendingForm());
-  for (const b of document.querySelectorAll('[data-goto]')) onTap(b, () => setTab(b.dataset.goto, true));
+  for (const b of document.querySelectorAll('[data-goto]')) onTap(b, () => (document.body.dataset.tab === b.dataset.goto ? window.scrollTo({ top: 0, behavior: 'smooth' }) : setTab(b.dataset.goto, true)));
   window.addEventListener('hashchange', () => setTab(location.hash.slice(1), false));
   $('addAfterpay').onclick = afterpayPurchaseForm;
   $('updateBalances').onclick = balancesForm;
@@ -1342,6 +1426,7 @@ function wireEvents() {
   $('afterpayPill').onclick = afterpayForm;
   $('openSettings').onclick = settingsForm;
   $('openBackup').onclick = backupDialog;
+  $('openMenu').onclick = menuSheet;
   $('editCategories').onclick = categoriesForm;
   $('closeModal').onclick = closeModal;
   $('undoBtn').onclick = undoLast;
@@ -1406,6 +1491,18 @@ function wireEvents() {
     if (d.open) ({ balances: balancesForm, settings: settingsForm, plan: planForm })[d.open]?.();
     if (d.payCom) payForm(find(state.commitments, d.payCom));
     if (t.id === 'openLesson') lessonDialog();
+    if ('investSuper' in d) {
+      const before = structuredClone(state);
+      state.invest = { ...state.invest, superChecked: !state.invest?.superChecked };
+      saveState();
+      planUndo('Super checked', before);
+      if (state.invest.superChecked) celebrate('Super checked ✓ One more step done.', { undo: true });
+    }
+    if ('investLesson' in d) {
+      const seen = new Set(state.learning?.seen || []);
+      const l = LESSONS.find((x) => INVEST_TOPICS.includes(x.topic) && !seen.has(x.id));
+      if (l) lessonDialog(l);
+    }
     if (d.step) tickStep(d.step);
     if (t.id === 'payLanded') payLanded();
     if (t.id === 'resetPay') { const before = structuredClone(state); delete state.payday; saveState(); planUndo('Use usual pay', before); }
@@ -1536,8 +1633,9 @@ async function syncUp({ quiet = false } = {}) {
   }
 }
 
-async function loadEverything() {
+async function loadEverything({ quiet = false } = {}) {
   state = await api.getState();
+  lastLoadedAt = Date.now();
   const from = addDays(weekStart(today(), state.weekStartsOn), -7 * (HISTORY_WEEKS - 1));
   transactions = (await api.listTransactions(from)).sort(byNewest);
   loadedFrom = from;
@@ -1548,7 +1646,7 @@ async function loadEverything() {
     $('syncUp').hidden = !up.configured;
     if (up.configured) syncUp({ quiet: true });
   } catch { /* Up sync is optional */ }
-  setTimeout(maybeDailyLesson, 900);
+  if (!quiet) setTimeout(maybeDailyLesson, 900);
 }
 
 // ---------- sign in ----------
