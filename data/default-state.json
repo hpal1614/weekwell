@@ -1,0 +1,17 @@
+{
+  "income": 0,
+  "payPeriod": "fortnightly",
+  "saving": 0,
+  "budgets": [
+    { "name": "Groceries", "icon": "🥬", "limit": 0, "spent": 0 },
+    { "name": "Transport", "icon": "🚆", "limit": 0, "spent": 0 },
+    { "name": "Meals out", "icon": "🍜", "limit": 0, "spent": 0 }
+  ],
+  "bills": [],
+  "commitments": [],
+  "goals": [],
+  "afterpayBalance": 0,
+  "transactions": [],
+  "week": 0
+}
+
