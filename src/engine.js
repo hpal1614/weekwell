@@ -397,6 +397,12 @@ export function validateState(state) {
     if (c.paid != null && (!isCents(c.paid) || c.paid < 0)) errors.push(`commitments[${i}].paid must be whole cents ≥ 0`);
   });
   if (state.incoming != null && !Array.isArray(state.incoming)) errors.push('incoming must be a list');
+  if (state.payday != null) {
+    const pd = state.payday;
+    if (typeof pd !== 'object' || !isISODate(pd.date) || (pd.amount != null && (!isCents(pd.amount) || pd.amount < 0))
+      || (pd.steps != null && (!Array.isArray(pd.steps) || pd.steps.length > 60))) errors.push('payday is invalid');
+  }
+  if (state.learning != null && (typeof state.learning !== 'object' || (state.learning.seen != null && !Array.isArray(state.learning.seen)))) errors.push('learning is invalid');
   if (state.merchantRules != null) {
     const rules = state.merchantRules;
     if (typeof rules !== 'object' || Array.isArray(rules) || Object.keys(rules).length > 1000
@@ -412,6 +418,7 @@ export function validateState(state) {
     if (!isCents(w.price) || w.price <= 0) errors.push(`wants[${i}].price must be whole cents > 0`);
     if (!isCents(w.saved) || w.saved < 0) errors.push(`wants[${i}].saved must be whole cents ≥ 0`);
     if (!isISODate(w.addedOn) || !isISODate(w.coolUntil)) errors.push(`wants[${i}] needs addedOn and coolUntil dates`);
+    if (w.priority != null && !['must', 'nice', 'someday'].includes(w.priority)) errors.push(`wants[${i}].priority is invalid`);
   });
   return errors;
 }

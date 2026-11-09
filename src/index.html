@@ -55,6 +55,8 @@
         </div>
       </div>
 
+      <section class="panel payday-card" id="paydayPanel" data-tab="home" hidden></section>
+
       <section class="overview" data-tab="home">
         <div class="overviewtop">
           <div>
@@ -75,7 +77,6 @@
         <div class="allocation" id="allocation"></div>
       </section>
 
-      <section class="panel payday-card" id="paydayPanel" data-tab="home" hidden></section>
       <section class="panel forecast" id="forecastPanel" data-tab="home" aria-live="polite"></section>
 
       <div data-tab="spending">
@@ -131,8 +132,8 @@
       </section>
 
       <section class="sidecard" data-tab="savings">
-        <div class="subhead"><h2>Wants</h2><span class="pill" id="wantsPill">$0 / pay</span></div>
-        <p class="sidecopy">Things you'd like to buy. Each waits a cooling-off period, then gets a date when it's paid for without touching savings.</p>
+        <div class="subhead"><h2>Wish list</h2><span class="pill" id="wantsPill">$0 / pay</span></div>
+        <p class="sidecopy">Things you'd like to buy, in the order you want them. Tap the tag to change how much you want it, and ↑ ↓ to reorder. Money goes to #1 first. Each waits a cooling-off period, then gets a date when it's paid for without touching savings.</p>
         <div id="wantList"></div>
         <button class="addrow" id="addWant" type="button">＋ Add something you want</button>
       </section>
@@ -140,6 +141,7 @@
       <section class="sidecard tipcard" data-tab="home">
         <h2><span class="tipstar">✳</span> A gentle nudge</h2>
         <p id="tipText">Set bills aside on payday. What stays is yours to spend, without guessing.</p>
+        <button type="button" class="smallbtn" id="openLesson">📚 Today’s money lesson</button>
       </section>
     </aside>
   </div>

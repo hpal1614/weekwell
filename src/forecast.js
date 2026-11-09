@@ -96,9 +96,17 @@ export function buildCashflow(state, today, weeklySpending, extraToday = 0) {
     day.events.push({ name, amount, kind, id });
   };
 
-  const paydays = state.pay?.amount > 0 && nextPayday(state.pay, today)
-    ? occurrences(nextPayday(state.pay, today), state.pay.period, today, end) : [];
-  for (const date of paydays) { add(date, state.pay.amount, 'Pay', 'pay'); index.get(date).payday = true; }
+  // A payday you've already ticked off ("pay landed") is in your balance already, so it is
+  // left out here; a different amount for one particular pay (e.g. a day off) is used for that date.
+  const session = state.payday;
+  const paydays = (state.pay?.amount > 0 && nextPayday(state.pay, today)
+    ? occurrences(nextPayday(state.pay, today), state.pay.period, today, end) : [])
+    .filter((date) => !(session?.received && session.date === date));
+  for (const date of paydays) {
+    const amount = session?.date === date && session.amount > 0 ? session.amount : state.pay.amount;
+    add(date, amount, 'Pay', 'pay');
+    index.get(date).payday = true;
+  }
 
   for (const bill of state.bills) {
     if (bill.nextDue && isISODate(bill.nextDue)) {
@@ -354,7 +362,7 @@ export function paydayPlan(f, state) {
     spendingBreakdown,
     pay,
     next,
-    payAmount: state.pay.amount,
+    payAmount: state.payday?.date === pay && state.payday.amount > 0 ? state.payday.amount : state.pay.amount,
     onPayday,
     onPaydayTotal: sum(onPayday),
     beforeNext,

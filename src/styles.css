@@ -187,6 +187,40 @@ h1, h2, h3 { font-family: var(--display); letter-spacing: -.02em; margin: 0; }
 .pp-result.bad { background: var(--over-bg); }
 .pp-result.bad b { color: var(--over); }
 .pp-done { margin-top: 14px; }
+
+/* payday card: one checklist for the whole pay */
+.payday-card { border: 2px solid var(--forest); }
+.payinput { margin: 12px 0 14px; }
+.payinput label { font-weight: 700; font-size: 14px; display: block; margin-bottom: 6px; }
+.payfield { display: flex; align-items: center; gap: 6px; background: var(--paper); border-radius: var(--radius-sm); padding: 0 14px; border: 1.5px solid var(--line); max-width: 260px; transition: border-color .2s; }
+.payfield:focus-within { border-color: var(--forest); }
+.payfield span { font: 700 22px var(--display); color: var(--muted); }
+.payfield input { border: 0; background: transparent; font: 800 24px var(--display); width: 100%; padding: 10px 0; color: var(--ink); min-width: 0; }
+.payfield input:focus { outline: none; }
+.fieldhint { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+.checklist2 { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 8px; }
+.ckstep { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 12px; border-radius: 16px; background: var(--card); border: 1px solid var(--line-2); transition: background .3s, opacity .3s; animation: rise .4s var(--ease) both; }
+.ckstep.next { background: var(--mint); border-color: transparent; }
+.ckstep.locked { opacity: .55; }
+.ckstep.done { background: var(--paper); }
+.ckstep.done .cklabel { text-decoration: line-through; color: var(--muted); }
+.ckbox { width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--bar); background: var(--card); display: grid; place-items: center; padding: 0; font: 700 14px var(--sans); color: var(--forest); transition: transform .2s var(--spring), background .2s; touch-action: manipulation; }
+.ckbox:not([disabled]):active { transform: scale(.88); }
+.ckbox[disabled] { cursor: default; }
+.ckstep.locked .ckbox { border-style: dashed; border-color: var(--muted); color: var(--muted); }
+.ckstep.done .ckbox { background: var(--forest); border-color: var(--forest); animation: pop .35s var(--spring); }
+.ckbox svg { width: 16px; height: 16px; fill: none; stroke: var(--green); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.ckmain { min-width: 0; padding-top: 6px; }
+.cklabel { font-weight: 700; font-size: 14.5px; line-height: 1.3; }
+.ckdetail { font-size: 12.5px; color: var(--muted); margin-top: 3px; line-height: 1.4; }
+.ckpart { margin-top: 4px; font-size: 12.5px; }
+.ckamt { font: 600 14px var(--mono); padding-top: 8px; white-space: nowrap; }
+.ckprogress { height: 8px; border-radius: 999px; background: var(--line-2); overflow: hidden; margin: 10px 0 4px; }
+.ckprogress i { display: block; height: 100%; background: linear-gradient(90deg, var(--bar), var(--green)); border-radius: 999px; transition: width .6s var(--ease); }
+.pp-done-note { font-size: 14px; margin: 12px 0 0; }
+.ckmore { margin-top: 10px; }
+.ckmore summary { cursor: pointer; font-size: 13px; color: var(--forest); font-weight: 600; }
+@keyframes pop { 0% { transform: scale(.6); } 100% { transform: scale(1); } }
 .duecheck .checklist .checkrow { border-top-color: rgba(107, 45, 28, .15); }
 .duecheck .checkname, .duecheck .checkamt { color: #6b2d1c; }
 
@@ -314,6 +348,20 @@ table.history tr.current td:first-child { font-weight: 700; }
 .wantstatus { font-size: 12.5px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
 .wantstatus .good, .good { color: #3e6a2c; font-weight: 700; }
 .wantactions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+.wantgroup { font: 700 12px var(--sans); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 14px 0 2px; }
+.wantgroup:first-child { padding-top: 0; }
+.wantgroup + .wantrow { border-top: 0; }
+.wanttop .wantname { flex: 1; }
+.wantrank { width: 24px; height: 24px; border-radius: 50%; background: var(--forest); color: var(--green); display: grid; place-items: center; font: 700 12px var(--sans); flex: none; align-self: center; }
+.prio-nice .wantrank { background: var(--lilac); color: var(--ink); }
+.prio-someday .wantrank { background: var(--line); color: var(--muted); }
+.prioChip { border: 0; border-radius: 999px; padding: 6px 12px; font: 600 12.5px var(--sans); background: var(--line-2); color: var(--ink); transition: transform .2s var(--spring); }
+.prioChip:active { transform: scale(.92); }
+.prioChip.prio-must { background: var(--peach); }
+.prioChip.prio-nice { background: var(--lilac); }
+.prioChip.prio-someday { background: var(--sky); }
+.orderbtns { display: inline-flex; gap: 6px; margin-left: auto; }
+.orderbtns .iconbtn[disabled] { opacity: .3; }
 .incomingrow .items { margin-left: 0; }
 .smallbtn { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 7px 12px; font-size: 13px; font-weight: 700; transition: transform .15s var(--ease); }
 .smallbtn:active { transform: scale(.95); }
@@ -466,13 +514,14 @@ table.history tr.current td:first-child { font-weight: 700; }
     color: #5f6b62; font-size: 11px; font-weight: 700;
     transition: background .3s var(--ease), color .3s, transform .2s var(--spring);
   }
-  .tabbar button:active { transform: scale(.9); }
+  .tabbar button { -webkit-touch-callout: none; user-select: none; }
+  .tabbar button:active:not(.tabadd) { background: rgba(255, 255, 255, .6); }
   .tabbar svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: transform .3s var(--spring); }
   .tabbar button[aria-current="page"] { color: var(--forest); background: rgba(255, 255, 255, .85); box-shadow: inset 0 1px 0 #fff, 0 4px 12px rgba(32, 44, 38, .12); }
   .tabbar button[aria-current="page"] svg { stroke-width: 2.2; transform: translateY(-1px) scale(1.08); }
   .tabbar .tabadd { flex: 0 0 56px; border-radius: 50%; background: var(--green); color: var(--ink); box-shadow: 0 8px 20px rgba(56, 83, 45, .34), inset 0 1px 0 rgba(255, 255, 255, .7); }
   .tabbar .tabadd svg { width: 26px; height: 26px; stroke-width: 2.4; }
-  .tabbar .tabadd:active svg { transform: rotate(90deg); }
+  .tabbar .tabadd:active { background: #b9e45a; }
   .fab { display: none; }
   .toast { bottom: calc(94px + env(safe-area-inset-bottom)); }
   .shell { padding-bottom: calc(108px + env(safe-area-inset-bottom)); }
@@ -489,3 +538,19 @@ table.history tr.current td:first-child { font-weight: 700; }
 @media (prefers-reduced-transparency: reduce) {
   .tabbar { background: rgba(255, 254, 250, .97); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
+
+/* daily money lesson */
+.lesson { text-align: left; }
+.lessonicon { font-size: 44px; line-height: 1; margin: 4px 0 10px; animation: pop .5s var(--spring) both; }
+.lessontopic { font: 700 11.5px var(--sans); text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+.lesson h3 { font: 800 22px var(--display); margin: 6px 0 8px; line-height: 1.2; }
+.lesson p { font-size: 15.5px; line-height: 1.55; margin: 0 0 14px; }
+.lessonaction { display: grid; gap: 4px; background: var(--mint); border-radius: var(--radius-sm); padding: 12px 14px; font-size: 14px; line-height: 1.45; }
+.lessonaction b { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--forest); }
+.lessonprogress { height: 6px; border-radius: 999px; background: var(--line-2); overflow: hidden; margin: 16px 0 6px; }
+.lessonprogress i { display: block; height: 100%; background: var(--bar); border-radius: 999px; }
+.lessonmeta { font-size: 12px; color: var(--muted); }
+.tipcard #openLesson { margin-top: 10px; }
+.lessonbtns { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; margin-top: 14px; }
+.lessonbtns .savebtn { margin-top: 0; }
+.laterbtn { border: 1.5px solid var(--line); background: var(--card); border-radius: 14px; height: 52px; font-weight: 700; font-size: 15px; color: var(--ink); }
