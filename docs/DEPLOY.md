@@ -16,6 +16,8 @@ It takes about 20 minutes, done once. You need: your GitHub account, your Google
 
 The new code is on the branch `claude/clever-meitner-jwwlip`. Vercel publishes from `main`, so merge that branch into `main` on GitHub with a pull request, then **Merge**.
 
+> ⚠️ **Do this before Step 1.** The old version on `main` has **no login**. If Vercel builds the old `main` with your `DATABASE_URL`, anyone with the link could see your budget. Once the new code is on `main`, the server refuses to show data until login is fully set up.
+
 ## Step 1: Create the Vercel project (gives you your web address)
 
 1. Go to **vercel.com** and **Sign up with GitHub**. Choose the free **Hobby** plan.
