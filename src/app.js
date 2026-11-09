@@ -1,6 +1,6 @@
 import { api } from './api.js';
 import {
-  COMMITMENT_KINDS, PAY_PERIODS, PERIODS, addDays, categoryAverages, commitmentNeed, formatMoney,
+  COMMITMENT_KINDS, PAY_PERIODS, PERIODS, POT_DEFAULT_NAMES, addDays, daysBetween, categoryAverages, commitmentNeed, formatMoney,
   fromCents, inRange, longDate, newId, perWeek, shortDate, spentByCategory, toCents, todayISO,
   weekLabel, weekStart, weeklyHistory, weeklyPlan, weeksPerPay,
 } from './engine.js';
@@ -57,6 +57,10 @@ function byNewest(a, b) {
   return Number(b.id) - Number(a.id);
 }
 
+function potName(key) {
+  return state.pots?.[key]?.name || POT_DEFAULT_NAMES[key];
+}
+
 // ---------- rendering ----------
 
 function render() {
@@ -68,15 +72,8 @@ function render() {
   const { byName, unmatched } = spentByCategory(weekTx, state.budgets);
 
   // hero
-  if (document.activeElement !== $('income')) $('income').value = fromCents(state.pay.amount) || 0;
+  if (document.activeElement !== $('income')) $('income').value = state.pay.amount ? fromCents(state.pay.amount).toFixed(2) : '0';
   $('payPeriod').value = state.pay.period;
-  $('billsTotal').textContent = formatMoney(plan.bills + plan.commitments);
-  $('billsHint').textContent = plan.overdue ? `incl. ${formatMoney(plan.overdue)} overdue` : 'weekly + due soon';
-  $('billsHint').classList.toggle('alert', plan.overdue > 0);
-  $('spendTotal').textContent = formatMoney(plan.spending);
-  $('savingDisplay').textContent = formatMoney(plan.saving);
-  $('leftTotal').textContent = formatMoney(plan.left);
-  $('leftTotal').classList.toggle('negative', plan.left < 0);
 
   // week navigation
   $('weekLabel').textContent = viewOffset === 0 ? `THIS WEEK · ${weekLabel(range).toUpperCase()}` : weekLabel(range).toUpperCase();
@@ -112,23 +109,40 @@ function render() {
     : `<div class="empty">${viewOffset === 0 ? 'No spending logged yet this week. Add purchases as you go to see your limits move.' : 'Nothing was logged this week.'}</div>`;
 
   const f = forecast(state, transactions, now);
-  const ready = f.perPay !== undefined;
-  if (ready) {
-    const wants = allocation(state, f.perPay).wants;
-    $('leftTotal').textContent = formatMoney(Math.round(wants / weeksPerPay(state.pay.period)));
-    $('leftTotal').classList.toggle('negative', false);
-    $('leftLabel').textContent = 'Left for wants';
-    $('leftHint').textContent = 'per week · from the forecast';
-  } else {
-    $('leftLabel').textContent = 'Still to plan';
-    $('leftHint').textContent = 'before other living costs';
-  }
+  renderSummary(plan, f, now);
   renderForecast(f, now);
   renderHistory(now);
   renderSide(plan, now);
   renderPots(f);
   renderWants(f, now);
   renderTip(plan, f);
+}
+
+// The four numbers on the green card. Once the forecast is set up they come from it
+// (what matters day to day); before that, from the simple weekly plan.
+function renderSummary(plan, f, now) {
+  const tile = (label, value, hint, { alert = false, negative = false, button = false } = {}) => `<div><label>${label}</label>${button
+    ? `<button class="editable" type="button" data-open="plan" title="Change your savings plan">${value}</button>`
+    : `<strong class="${negative ? 'negative' : ''}">${value}</strong>`}<div class="microhint ${alert ? 'alert' : ''}">${hint}</div></div>`;
+  let html;
+  if (f.perPay !== undefined) {
+    const days = daysBetween(now, f.nextPay);
+    const committed = allocation(state, f.perPay);
+    html = [
+      tile('Next payday', shortDate(f.nextPay), days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`),
+      tile('Safe to save', formatMoney(f.perPay), committed.committed ? 'each pay · tap to change split' : 'each pay · tap to choose split', { button: true }),
+      tile('Lowest point ahead', formatMoney(f.min), `${shortDate(f.minDate)}${f.status === 'short' ? ' · tight' : ''}`, { alert: f.status === 'short', negative: f.min < 0 }),
+      tile('Everyday spending', formatMoney(plan.spending), 'per week · your limits'),
+    ];
+  } else {
+    html = [
+      tile('Bills + commitments', formatMoney(plan.bills + plan.commitments), plan.overdue ? `incl. ${formatMoney(plan.overdue)} overdue` : 'weekly + due soon', { alert: plan.overdue > 0 }),
+      tile('Everyday spending', formatMoney(plan.spending), 'weekly limits'),
+      tile('Savings + emergency', formatMoney(plan.saving), 'per week · tap to change', { button: true }),
+      tile('Still to plan', formatMoney(plan.left), 'before other living costs', { negative: plan.left < 0 }),
+    ];
+  }
+  $('allocation').innerHTML = html.join('');
 }
 
 function renderHistory(now) {
@@ -180,7 +194,7 @@ function renderSide(plan, now) {
           : need.status === 'now' ? 'NO DUE DATE · HOLD THE FULL AMOUNT NOW'
           : `DUE ${longDate(c.due).toUpperCase()} · SET ASIDE ${formatMoney(need.perWeek)}/WK${need.savedSoFar ? ` · ≈${formatMoney(need.savedSoFar)} PUT ASIDE SO FAR` : ''}`;
         return `<div class="billrow">
-          <span class="billicon">${c.kind === 'Afterpay' ? '↗' : '◷'}</span>
+          <span class="billicon">${c.kind === 'Afterpay' ? '↗' : c.kind === 'Friend' ? '☺' : '◷'}</span>
           <button class="billmain" data-edit-com="${esc(c.id)}" title="Edit"><div class="billname">${esc(c.name)}${c.kind && c.kind !== c.name ? ` <span class="muted">· ${esc(c.kind)}</span>` : ''}</div><div class="billdue ${need.status === 'overdue' ? 'overdue' : ''}">${when}</div></button>
           <span class="billcost">${formatMoney(c.amount)}<button class="iconbtn" data-paid-com="${esc(c.id)}" title="Mark paid" aria-label="Mark ${esc(c.name)} paid">✓</button><button class="iconbtn" data-del-com="${esc(c.id)}" title="Remove" aria-label="Remove ${esc(c.name)}">×</button></span>
         </div>`;
@@ -230,6 +244,9 @@ function stepDate(anchor, period, k) {
 }
 
 function renderForecast(f, now) {
+  const paydayHtml = f.perPay !== undefined ? renderPaydayPlan(f) : '';
+  $('paydayPanel').innerHTML = paydayHtml;
+  $('paydayPanel').hidden = !paydayHtml;
   const panel = $('forecastPanel');
   const head = `<div class="sectionhead"><h2>Looking ahead · next 12 months</h2><button class="linkbtn" data-open="balances">UPDATE BALANCES ↗</button></div>`;
   if (f.status === 'needs-pay') { panel.innerHTML = `${head}<div class="notice info">Enter your take-home pay above to see what's safe to save.</div>`; return; }
@@ -260,7 +277,7 @@ function renderForecast(f, now) {
       <div class="stat ${f.status === 'short' ? 'warn' : ''}"><label>Lowest point ahead</label><strong>${formatMoney(f.min)}</strong><div class="sub">around ${longDate(f.minDate)}, after saving</div></div>
       <div class="stat"><label>Money now</label><strong>${formatMoney(f.cash)}</strong><div class="sub">${f.belowBufferUntilPayday ? `building up to a ${formatMoney(f.buffer)} buffer from payday` : `${formatMoney(f.buffer)} of it always stays as your buffer`}</div></div>
     </div>
-    ${short}${over}${renderPaydayPlan(f)}${split}${stale}${spendNote}
+    ${short}${over}${split}${stale}${spendNote}
     <div class="chartwrap" id="chartWrap"></div>
     <details class="upcoming"><summary>Coming out in the next 8 weeks (${f.upcoming.length})</summary>
       <div class="tablewrap"><table class="history"><thead><tr><th>Date</th><th>What</th><th class="num">Amount</th></tr></thead><tbody>
@@ -274,7 +291,8 @@ function renderForecast(f, now) {
 function renderPaydayPlan(f) {
   const p = paydayPlan(f, state);
   if (!p) return '';
-  const rows = (list) => list.map((x) => `<li><span>${esc(x.name)}${x.date !== p.pay ? ` <span class="muted">· ${shortDate(x.date)}</span>` : ''}</span><b>${formatMoney(x.amount)}</b></li>`).join('');
+  const paidBtn = (x) => (x.kind === 'commitment' || x.kind === 'afterpay' || x.kind === 'due') && x.id ? `<button class="paidbtn" data-paid-com="${esc(x.id)}" title="Mark paid">Paid ✓</button>` : '';
+  const rows = (list) => list.map((x) => `<li><span>${esc(x.name)}${x.date && x.date !== p.pay ? ` <span class="muted">· ${shortDate(x.date)}</span>` : ''}</span><span class="itemright">${paidBtn(x)}<b>${formatMoney(x.amount)}</b></span></li>`).join('');
   const step = (n, title, total, body = '') => `<li class="step"><div class="stephead"><span class="stepno">${n}</span><span>${title}</span>${total !== null ? `<b>${formatMoney(total)}</b>` : ''}</div>${body}</li>`;
   let n = 0;
   const steps = [
@@ -285,13 +303,16 @@ function renderPaydayPlan(f) {
     step(++n, `Everyday spending until ${shortDate(p.next)} (groceries, transport, eating out…)`, p.spending),
     step(++n, p.committed ? 'Move to your Up Savers' : 'Move to your Up Savers (suggested)', p.movesTotal,
       p.movesTotal > 0
-        ? `<ul class="items"><li><span>Locked savings</span><b>${formatMoney(p.moves.savings)}</b></li>${p.moves.emergency ? `<li><span>Emergency fund</span><b>${formatMoney(p.moves.emergency)}</b></li>` : ''}${p.moves.wants ? `<li><span>Wants</span><b>${formatMoney(p.moves.wants)}</b></li>` : ''}</ul>${p.committed ? '' : '<button class="linkbtn" data-open="plan">CHOOSE MY SPLIT</button>'}`
+        ? `<ul class="items"><li><span>${esc(potName('savings'))}</span><b>${formatMoney(p.moves.savings)}</b></li>${p.moves.emergency ? `<li><span>${esc(potName('emergency'))}</span><b>${formatMoney(p.moves.emergency)}</b></li>` : ''}${p.moves.wants ? `<li><span>Wants</span><b>${formatMoney(p.moves.wants)}</b></li>` : ''}</ul>${p.committed ? '' : '<button class="linkbtn" data-open="plan">CHOOSE MY SPLIT</button>'}`
         : '<div class="fieldhint">Nothing is safe to move this pay. That’s OK: the plan covers everything else first.</div>'),
     p.leftBeforeNext ? step(++n, `Left over on ${shortDate(p.leftBeforeNext.date)}, the night before your next pay`, p.leftBeforeNext.amount, `<div class="fieldhint">${p.leftBeforeNext.amount >= f.buffer ? 'That’s your safety buffer, untouched.' : `Below your ${formatMoney(f.buffer)} buffer. Go easy, or move less to your Savers this time.`}</div>`) : '',
     step(++n, 'Then tap Update balances with what’s really in your accounts', null, '<button class="inlinebtn light" data-open="balances">Update balances</button>'),
   ].join('');
-  const before = p.lowBeforePay ? `<div class="fieldhint">Until payday: your lowest point is ${formatMoney(p.lowBeforePay.amount)} on ${longDate(p.lowBeforePay.date)}. Keep spending light.</div>` : '';
-  return `<details class="payday" open><summary>Payday plan · ${longDate(p.pay)}</summary>${before}<ol class="steps">${steps}</ol></details>`;
+  const before = p.lowBeforePay ? `<div class="notice">Until payday: your lowest point is <b>${formatMoney(p.lowBeforePay.amount)}</b> on ${longDate(p.lowBeforePay.date)}. Keep spending light.</div>` : '';
+  const due = p.dueAlready.length
+    ? `<div class="notice warn duecheck"><b>Already due: did you pay these?</b> Tap “Paid ✓” so they stop counting as owed.<ul class="items">${rows(p.dueAlready.map((x) => ({ ...x, kind: 'due', date: null, name: x.due ? `${x.name} · was due ${shortDate(x.due)}` : `${x.name} · no due date` })))}</ul></div>`
+    : '';
+  return `<div class="sectionhead"><h2>Payday plan · ${shortDate(p.pay)}</h2><span class="pill">${formatMoney(p.payAmount)} in</span></div>${due}${before}<ol class="steps">${steps}</ol>`;
 }
 
 function drawChart(f) {
@@ -354,12 +375,12 @@ function renderPots(f) {
   const updated = state.balances.updatedOn ? `updated ${shortDate(state.balances.updatedOn)}` : 'not entered yet';
   $('potList').innerHTML = `
     <div class="potrow"><div class="pottop"><div><div class="potname">Everyday</div><div class="potwhere">COMMBANK + UP SPENDING · ${updated.toUpperCase()}</div></div><span class="potamt">${formatMoney(state.balances.everyday)}</span></div></div>
-    <div class="potrow"><div class="pottop"><div><div class="potname">Bills & buffer</div><div class="potwhere">UP SAVER · OK TO USE FOR BILLS & SMALL SURPRISES</div></div><span class="potamt">${formatMoney(p.buffer.balance)}</span></div>
+    <div class="potrow"><div class="pottop"><div><div class="potname">${esc(potName('buffer'))}</div><div class="potwhere">UP SAVER · OK TO USE FOR BILLS & SMALL SURPRISES</div></div><span class="potamt">${formatMoney(p.buffer.balance)}</span></div>
       <div class="potnote">Buffer to keep: ${formatMoney(p.buffer.target)}</div></div>
-    <div class="potrow"><div class="pottop"><div><div class="potname">Emergency fund</div><div class="potwhere">UP SAVER · REAL EMERGENCIES ONLY</div></div><span class="potamt">${formatMoney(p.emergency.balance)} / ${formatMoney(p.emergency.target)}</span></div>
+    <div class="potrow"><div class="pottop"><div><div class="potname">${esc(potName('emergency'))}</div><div class="potwhere">UP SAVER · REAL EMERGENCIES ONLY</div></div><span class="potamt">${formatMoney(p.emergency.balance)} / ${formatMoney(p.emergency.target)}</span></div>
       ${meter(p.emergency.balance, p.emergency.target)}
       <div class="potnote">${emergencyFull(state) ? 'Full ✓ Its share of each pay now goes to savings and wants.' : alloc && alloc.emergency ? `+${formatMoney(alloc.emergency)} each pay until full.` : 'Not being topped up yet. Choose your split in the forecast.'}</div></div>
-    <div class="potrow"><div class="pottop"><div><div class="potname">Locked savings</div><div class="potwhere">UP SAVER · NEVER WITHDRAW</div></div><span class="potamt">${formatMoney(p.savings.balance)}</span></div>
+    <div class="potrow"><div class="pottop"><div><div class="potname">${esc(potName('savings'))}</div><div class="potwhere">UP SAVER · NEVER WITHDRAW</div></div><span class="potamt">${formatMoney(p.savings.balance)}</span></div>
       <div class="potnote">${alloc && alloc.savings ? `+${formatMoney(alloc.savings)} each pay. Untouched, it keeps Up's bonus rate.` : 'Choose how much goes here each pay in the forecast.'}</div></div>`;
 }
 
@@ -583,18 +604,18 @@ function balancesForm() {
     submitLabel: 'Save balances',
     fields: [
       { name: 'everyday', label: 'Everyday: CommBank + Up Spending together', type: 'money', value: state.balances.everyday, required: true, hint: 'Everything you can spend or pay bills from today, not counting Up Savers.' },
-      { name: 'buffer', label: 'Bills & buffer Saver', type: 'money', value: state.pots.buffer.balance, half: true },
+      { name: 'buffer', label: `${potName('buffer')} Saver`, type: 'money', value: state.pots.buffer.balance, half: true },
       { name: 'bufferTarget', label: 'Buffer to always keep', type: 'money', value: state.pots.buffer.target, half: true },
-      { name: 'emergency', label: 'Emergency fund Saver', type: 'money', value: state.pots.emergency.balance, half: true },
+      { name: 'emergency', label: `${potName('emergency')} Saver`, type: 'money', value: state.pots.emergency.balance, half: true },
       { name: 'emergencyTarget', label: 'Emergency fund goal', type: 'money', value: state.pots.emergency.target, half: true },
-      { name: 'savings', label: 'Locked savings Saver', type: 'money', value: state.pots.savings.balance },
+      { name: 'savings', label: `${potName('savings')} Saver`, type: 'money', value: state.pots.savings.balance },
     ],
     note: 'Up Saver you have today? If it’s your only savings, count it as the emergency fund. A new Saver for locked savings starts at $0.',
     onSubmit: (v) => {
       state.balances = { everyday: v.everyday, updatedOn: today() };
-      state.pots.buffer = { balance: v.buffer, target: v.bufferTarget };
-      state.pots.emergency = { balance: v.emergency, target: v.emergencyTarget };
-      state.pots.savings = { balance: v.savings };
+      state.pots.buffer = { ...state.pots.buffer, balance: v.buffer, target: v.bufferTarget };
+      state.pots.emergency = { ...state.pots.emergency, balance: v.emergency, target: v.emergencyTarget };
+      state.pots.savings = { ...state.pots.savings, balance: v.savings };
       saveState();
       toast('Balances saved. Forecast updated.');
     },
@@ -669,10 +690,17 @@ function settingsForm() {
       { name: 'period', label: 'Paid', type: 'select', options: PAY_PERIODS.map((p) => ({ value: p, label: PERIOD_LABEL[p] })), value: state.pay.period, half: true },
       { name: 'nextPayday', label: 'Next payday (optional)', type: 'date', value: state.pay.nextPayday, hint: 'Used by the upcoming “safe to save” forecast.' },
       { name: 'weekStartsOn', label: 'Weeks start on', type: 'select', options: DAY_NAMES.map((d, i) => ({ value: String(i), label: d })), value: String(state.weekStartsOn), hint: 'Tip: choose your payday so each week starts with fresh money.' },
+      { name: 'nameSavings', label: 'Your Up Saver for locked savings is called', placeholder: POT_DEFAULT_NAMES.savings, value: state.pots.savings.name, half: true },
+      { name: 'nameEmergency', label: 'Your emergency fund Saver is called', placeholder: POT_DEFAULT_NAMES.emergency, value: state.pots.emergency.name, half: true },
+      { name: 'nameBuffer', label: 'Your bills & buffer Saver is called', placeholder: POT_DEFAULT_NAMES.buffer, value: state.pots.buffer.name, hint: 'Optional. Use the names you see in the Up app, so the payday plan says exactly where to move money.' },
     ],
     onSubmit: async (v) => {
       state.pay = { amount: v.amount, period: v.period, nextPayday: v.nextPayday };
       state.weekStartsOn = Number(v.weekStartsOn);
+      const named = (pot, value) => { const next = { ...pot }; if (value) next.name = value.slice(0, 40); else delete next.name; return next; };
+      state.pots.savings = named(state.pots.savings, v.nameSavings);
+      state.pots.emergency = named(state.pots.emergency, v.nameEmergency);
+      state.pots.buffer = named(state.pots.buffer, v.nameBuffer);
       await ensureTransactionsFrom(addDays(weekStart(today(), state.weekStartsOn), -7 * (HISTORY_WEEKS - 1)));
       saveState();
       toast('Settings saved.');
@@ -786,7 +814,6 @@ function find(list, id) { return list.find((x) => x.id === id); }
 function wireEvents() {
   $('income').addEventListener('change', (e) => { state.pay.amount = Math.max(0, toCents(e.target.value)); saveState(); });
   $('payPeriod').addEventListener('change', (e) => { state.pay.period = e.target.value; saveState(); });
-  $('savingDisplay').onclick = planForm;
 
   $('prevWeek').onclick = async () => {
     viewOffset -= 1;

@@ -5,7 +5,8 @@
 export const STATE_VERSION = 3;
 export const PERIODS = ['weekly', 'fortnightly', 'monthly', 'quarterly', 'annual'];
 export const PAY_PERIODS = ['weekly', 'fortnightly', 'monthly'];
-export const COMMITMENT_KINDS = ['Invoice', 'Afterpay', 'Bill', 'Other'];
+export const COMMITMENT_KINDS = ['Invoice', 'Afterpay', 'Bill', 'Friend', 'Other'];
+export const POT_DEFAULT_NAMES = { buffer: 'Bills & buffer', emergency: 'Emergency fund', savings: 'Locked savings' };
 
 // ---------- money ----------
 
@@ -369,6 +370,7 @@ export function validateState(state) {
   const p = state.pots;
   const potOk = (pot, withTarget) => pot && isCents(pot.balance) && pot.balance >= 0 && (!withTarget || (isCents(pot.target) && pot.target >= 0));
   if (!p || !potOk(p.buffer, true) || !potOk(p.emergency, true) || !potOk(p.savings, false)) errors.push('pots are invalid');
+  else for (const key of ['buffer', 'emergency', 'savings']) if (p[key].name != null && (typeof p[key].name !== 'string' || p[key].name.length > 40)) errors.push(`pots.${key}.name must be text up to 40 characters`);
   const pl = state.plan;
   if (!pl || !isCents(pl.savingsPerPay) || pl.savingsPerPay < 0 || !isCents(pl.emergencyPerPay) || pl.emergencyPerPay < 0) errors.push('plan amounts must be whole cents ≥ 0');
   if (errors.length) return errors;

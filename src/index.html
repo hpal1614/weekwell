@@ -70,14 +70,10 @@
           </div>
           <div class="week-tag">PAYDAY → PLAN → BREATHE</div>
         </div>
-        <div class="allocation">
-          <div><label>Bills + commitments</label><strong id="billsTotal">$0</strong><div class="microhint" id="billsHint">weekly + due soon</div></div>
-          <div><label>Everyday spending</label><strong id="spendTotal">$0</strong><div class="microhint">weekly limits</div></div>
-          <div><label>Savings + emergency</label><button class="editable" id="savingDisplay" type="button" title="Change your savings plan">$0</button><div class="microhint">per week · tap to change</div></div>
-          <div><label id="leftLabel">Still to plan</label><strong id="leftTotal">$0</strong><div class="microhint" id="leftHint">before other living costs</div></div>
-        </div>
+        <div class="allocation" id="allocation"></div>
       </section>
 
+      <section class="panel payday-card" id="paydayPanel" hidden></section>
       <section class="panel forecast" id="forecastPanel" aria-live="polite"></section>
 
       <div class="sectionhead">
