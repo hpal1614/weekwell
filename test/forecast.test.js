@@ -61,6 +61,21 @@ test('the forecast warns when even saving nothing breaks the buffer', () => {
   assert.ok(f.shortDate >= '2026-11-20' && f.shortDate < '2026-11-23'); // bill day, then spending until payday
 });
 
+test('before the first payday only $0 matters; the buffer is kept from payday on', () => {
+  // $150 now (below the $500 buffer), pay arrives in 4 days.
+  const s = example({ pay: { amount: 200000, period: 'fortnightly', nextPayday: '2026-11-13' }, balances: { everyday: 15000, updatedOn: TODAY } });
+  s.bills = s.bills.map((b) => ({ ...b, nextDue: '2026-11-20' }));
+  s.pots.buffer = { target: 50000, balance: 0 };
+  const f = forecast(s, [], TODAY);
+  assert.equal(f.status, 'ok');
+  assert.equal(f.belowBufferUntilPayday, true);
+  assert.ok(f.perPay > 0);
+  // But actually running out before payday is still caught.
+  const broke = forecast({ ...s, balances: { everyday: 5000, updatedOn: TODAY } }, [], TODAY);
+  assert.equal(broke.status, 'short');
+  assert.ok(broke.shortDate < '2026-11-13');
+});
+
 test('setup states are reported instead of guessing', () => {
   assert.equal(forecast(example({ pay: { amount: 0, period: 'weekly', nextPayday: TODAY } }), [], TODAY).status, 'needs-pay');
   assert.equal(forecast(example({ pay: { amount: 100000, period: 'weekly', nextPayday: null } }), [], TODAY).status, 'needs-payday');

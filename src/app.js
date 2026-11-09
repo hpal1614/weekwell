@@ -243,7 +243,7 @@ function renderForecast(f, now) {
   const stale = f.staleDays > 10 ? `<div class="notice">Balances were last updated ${f.staleDays} days ago. Update them after payday so the forecast stays accurate. <button class="inlinebtn light" data-open="balances">Update now</button></div>` : '';
   const spendNote = f.spending.usingActual ? `<div class="notice">The forecast uses what you actually spend (${formatMoney(f.spending.actual)}/week over the last 4 weeks), because it's more than your limits (${formatMoney(f.spending.limits)}/week).</div>` : '';
   const short = f.status === 'short'
-    ? `<div class="notice warn"><b>Tight time ahead.</b> Around ${longDate(f.shortDate)}, money is forecast to drop ${formatMoney(f.shortfall)} below your ${formatMoney(f.buffer)} buffer, even if you save nothing. Look at the dates below. Moving a payment, lowering a limit, or using the buffer now beats a credit card later.</div>` : '';
+    ? `<div class="notice warn"><b>Tight time ahead.</b> Around ${longDate(f.shortDate)}, money is forecast to drop ${f.shortDate < f.nextPay ? `${formatMoney(f.shortfall)} below $0 before your next pay arrives` : `${formatMoney(f.shortfall)} below your ${formatMoney(f.buffer)} buffer`}, even if you save nothing. Look at the dates below. Moving a payment, lowering a limit, or using the buffer now beats a credit card later.</div>` : '';
   const over = alloc.overBy > 0
     ? `<div class="notice warn">Your plan saves ${formatMoney(alloc.savings + alloc.emergency)} per pay, but only ${formatMoney(f.perPay)} is safe right now. Saving more than that is what leads to withdrawing later. <button class="inlinebtn" data-open="plan">Adjust the plan</button></div>` : '';
   const split = !alloc.committed
@@ -257,8 +257,8 @@ function renderForecast(f, now) {
   panel.innerHTML = `${head}
     <div class="stats">
       <div class="stat hero"><label>Safe to save each pay</label><strong>${formatMoney(f.perPay)}</strong><div class="sub">next payday ${longDate(f.nextPay)}. Nothing you'll need back.</div></div>
-      <div class="stat ${f.min < f.buffer ? 'warn' : ''}"><label>Lowest point ahead</label><strong>${formatMoney(f.min)}</strong><div class="sub">around ${longDate(f.minDate)}, after saving</div></div>
-      <div class="stat"><label>Money now</label><strong>${formatMoney(f.cash)}</strong><div class="sub">${formatMoney(f.buffer)} of it always stays as your buffer</div></div>
+      <div class="stat ${f.status === 'short' ? 'warn' : ''}"><label>Lowest point ahead</label><strong>${formatMoney(f.min)}</strong><div class="sub">around ${longDate(f.minDate)}, after saving</div></div>
+      <div class="stat"><label>Money now</label><strong>${formatMoney(f.cash)}</strong><div class="sub">${f.belowBufferUntilPayday ? `building up to a ${formatMoney(f.buffer)} buffer from payday` : `${formatMoney(f.buffer)} of it always stays as your buffer`}</div></div>
     </div>
     ${short}${over}${split}${stale}${spendNote}
     <div class="chartwrap" id="chartWrap"></div>
@@ -286,7 +286,7 @@ function drawChart(f) {
   const ticks = [lo + (hi - lo) * 0.1, (lo + hi) / 2, hi - (hi - lo) * 0.1].map((v) => Math.round(v / 10000) * 10000);
   const months = pts.map((p, i) => ({ p, i })).filter(({ p }) => p.date.endsWith('-01'));
   const minI = pts.findIndex((p) => p.date === f.minDate);
-  const minBelow = f.min < f.buffer;
+  const minBelow = f.status === 'short';
   const minLabelX = Math.min(Math.max(x(minI), padL + 40), W - padR - 80);
   wrap.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Projected balance over the next 12 months. Lowest ${formatMoney(f.min)} on ${longDate(f.minDate)}.">
     ${ticks.map((t) => `<line class="grid" x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}"/><text class="axis" x="${padL - 6}" y="${y(t) + 3}" text-anchor="end">${t < 0 ? '-' : ''}$${Math.abs(t / 100) >= 1000 ? `${(Math.abs(t) / 100000).toFixed(1).replace(/\.0$/, '')}k` : Math.abs(t / 100)}</text>`).join('')}

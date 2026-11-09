@@ -129,15 +129,33 @@ export function simulate(flow, startCash, perPay) {
   return { min, minDate, series };
 }
 
-/** Largest steady amount per pay (whole dollars) keeping cash ≥ buffer every day. */
+/**
+ * How far a run falls short of the rule, and when.
+ * The rule: before the first payday you only need to stay above $0 (you may not have
+ * built a buffer yet); from the first payday on, keep the full buffer.
+ */
+export function shortfall(flow, sim, buffer) {
+  const first = flow.paydays[0];
+  let worst = 0;
+  let date = null;
+  flow.days.forEach((day, i) => {
+    const floor = first && day.date >= first ? buffer : 0;
+    const gap = floor - sim.series[i];
+    if (gap > worst) { worst = gap; date = day.date; }
+  });
+  return { amount: worst, date };
+}
+
+/** Largest steady amount per pay (whole dollars) that never breaks the rule above. */
 export function maxSafePerPay(flow, startCash, buffer, payAmount) {
   if (!flow.paydays.length) return 0;
-  if (simulate(flow, startCash, 0).min < buffer) return 0;
+  const fits = (perPay) => shortfall(flow, simulate(flow, startCash, perPay), buffer).amount === 0;
+  if (!fits(0)) return 0;
   let lo = 0;
   let hi = Math.floor(payAmount / 100);
   while (lo < hi) {
     const mid = Math.ceil((lo + hi) / 2);
-    if (simulate(flow, startCash, mid * 100).min >= buffer) lo = mid; else hi = mid - 1;
+    if (fits(mid * 100)) lo = mid; else hi = mid - 1;
   }
   return lo * 100;
 }
@@ -158,8 +176,8 @@ export function forecast(state, transactions, today, { extraToday = 0 } = {}) {
   const flow = buildCashflow(state, today, spending.weekly, extraToday);
   const perPay = maxSafePerPay(flow, cash, buffer, state.pay.amount);
   const withPlan = simulate(flow, cash, perPay);
-  const withNothing = simulate(flow, cash, 0);
-  const short = withNothing.min < buffer;
+  const gap = shortfall(flow, simulate(flow, cash, 0), buffer);
+  const short = gap.amount > 0;
   const nextPay = flow.paydays[0];
   const staleDays = daysBetween(state.balances.updatedOn, today);
 
@@ -177,8 +195,9 @@ export function forecast(state, transactions, today, { extraToday = 0 } = {}) {
     paydays: flow.paydays,
     min: withPlan.min,
     minDate: withPlan.minDate,
-    shortfall: short ? buffer - withNothing.min : 0,
-    shortDate: short ? withNothing.minDate : null,
+    shortfall: gap.amount,
+    shortDate: gap.date,
+    belowBufferUntilPayday: cash < buffer,
     series: flow.days.map((d, i) => ({ date: d.date, balance: withPlan.series[i], events: d.events })),
     upcoming,
     spending,
