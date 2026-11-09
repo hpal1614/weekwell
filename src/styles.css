@@ -164,6 +164,20 @@ table.history tr.current td:first-child { font-weight: 700; }
 .upcoming { margin-top: 10px; }
 .upcoming summary { cursor: pointer; font-size: 12px; font-weight: 600; color: #46674f; padding: 6px 0; }
 
+/* payday plan */
+.payday { border: 1px solid #e3e6dc; border-radius: 14px; padding: 12px 14px; margin: 12px 0 4px; background: #fbfbf6; }
+.payday summary { cursor: pointer; font: 700 14px var(--display); }
+.payday .fieldhint { margin-top: 6px; }
+.steps { list-style: none; margin: 8px 0 0; padding: 0; }
+.step { padding: 9px 0; border-top: 1px solid #eff0ea; }
+.step:first-child { border-top: 0; }
+.stephead { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: baseline; font-size: 12px; font-weight: 600; }
+.stephead b, .items b { font: 500 12px var(--mono); white-space: nowrap; }
+.stepno { width: 20px; height: 20px; border-radius: 50%; background: var(--mint); display: grid; place-items: center; font-size: 10px; font-weight: 700; }
+.items { list-style: none; margin: 6px 0 0 30px; padding: 0; }
+.items li { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; padding: 3px 0; color: #3d4a42; }
+.step .linkbtn, .step .inlinebtn { margin: 8px 0 0 30px; }
+
 /* pots and wants */
 .sidecopy { font-size: 11px; color: var(--muted); line-height: 1.5; margin: -4px 0 8px; }
 .potrow { padding: 10px 0; border-top: 1px solid #d3e0cd; }
