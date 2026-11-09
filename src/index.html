@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f5f2e9">
+  <title>Weekwell — a calmer money week</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Weekwell">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+</head>
+<body>
+<div class="gate" id="gate" hidden>
+  <div class="gatecard">
+    <div class="brand"><div class="brandmark">↗</div>weekwell</div>
+    <h1>Your money, with a plan.</h1>
+    <p id="gateText">Sign in with your Google account to open your budget.</p>
+    <div id="googleButton" class="googlebutton"></div>
+    <p class="gatenote" id="gateNote">Only approved Google accounts can open this app.</p>
+  </div>
+</div>
+<div class="shell" id="shell">
+  <header class="topbar">
+    <div class="brand"><div class="brandmark">↗</div>weekwell</div>
+    <div class="top-right">
+      <span class="date" id="today"></span>
+      <button class="toplink" id="openBackup" type="button">Backup</button>
+      <button class="toplink" id="openSettings" type="button">Settings</button>
+      <button class="toplink" id="signOut" type="button" hidden>Sign out</button>
+      <div class="avatar" id="avatar" aria-hidden="true">•</div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <main class="maincol">
+      <div class="greeting">
+        <div>
+          <div class="eyebrow">Your money, with a plan</div>
+          <h1>Make this week<br>feel lighter.</h1>
+        </div>
+        <div class="weeknav" aria-label="Choose week">
+          <button id="prevWeek" type="button" aria-label="Previous week">‹</button>
+          <span id="weekLabel">THIS WEEK</span>
+          <button id="nextWeek" type="button" aria-label="Next week">›</button>
+        </div>
+      </div>
+
+      <section class="overview">
+        <div class="overviewtop">
+          <div>
+            <div class="eyebrow">Take-home pay</div>
+            <div class="pay">
+              <span class="currency">$</span>
+              <input id="income" type="number" min="0" step="0.01" value="0" aria-label="Pay amount">
+              <select id="payPeriod" aria-label="Pay frequency">
+                <option value="weekly">weekly</option>
+                <option value="fortnightly">fortnightly</option>
+                <option value="monthly">monthly</option>
+              </select>
+            </div>
+            <div class="netlabel">Plan shown per week · adjust pay and frequency</div>
+          </div>
+          <div class="week-tag">PAYDAY → PLAN → BREATHE</div>
+        </div>
+        <div class="allocation">
+          <div><label>Bills + commitments</label><strong id="billsTotal">$0</strong><div class="microhint" id="billsHint">weekly + due soon</div></div>
+          <div><label>Everyday spending</label><strong id="spendTotal">$0</strong><div class="microhint">weekly limits</div></div>
+          <div><label>Savings + emergency</label><button class="editable" id="savingDisplay" type="button" title="Change your savings plan">$0</button><div class="microhint">per week · tap to change</div></div>
+          <div><label id="leftLabel">Still to plan</label><strong id="leftTotal">$0</strong><div class="microhint" id="leftHint">before other living costs</div></div>
+        </div>
+      </section>
+
+      <section class="panel forecast" id="forecastPanel" aria-live="polite"></section>
+
+      <div class="sectionhead">
+        <h2 id="spendPlanTitle">Your weekly spending plan</h2>
+        <button class="linkbtn" id="editCategories" type="button">EDIT CATEGORIES ↗</button>
+      </div>
+      <div class="budget-grid" id="budgetGrid"></div>
+
+      <section class="panel">
+        <div class="sectionhead">
+          <h2 id="txTitle">Spending this week</h2>
+          <span class="pill" id="txTotal">$0.00</span>
+        </div>
+        <div id="txList"></div>
+      </section>
+
+      <section class="panel">
+        <div class="sectionhead"><h2>History</h2><span class="muted small">compared with your current limits</span></div>
+        <h3 class="subtitle">Last 8 weeks</h3>
+        <div class="tablewrap"><table class="history" id="weekHistory"></table></div>
+        <h3 class="subtitle">Where it went · average per week, last 4 full weeks</h3>
+        <div class="tablewrap"><table class="history" id="categoryHistory"></table></div>
+      </section>
+    </main>
+
+    <aside class="side">
+      <section class="sidecard">
+        <div class="subhead"><h2>Coming out regularly</h2><span class="pill" id="billPill">$0 / week</span></div>
+        <div id="billList"></div>
+        <button class="addrow" id="addBill" type="button">＋ Add a bill or subscription</button>
+      </section>
+
+      <section class="sidecard">
+        <div class="subhead"><h2>Upcoming commitments</h2><button class="pill pillbtn" id="afterpayPill" type="button" title="Change Afterpay balance">Afterpay $0</button></div>
+        <div id="commitmentList"></div>
+        <div class="billdue" id="commitmentSummary"></div>
+        <button class="addrow" id="addCommitment" type="button">＋ Add one-off payment</button>
+        <button class="addrow" id="addAfterpay" type="button">＋ Add Afterpay purchase</button>
+      </section>
+
+      <section class="sidecard goalcard">
+        <div class="subhead"><h2>Your pots</h2><button class="pill pillbtn" id="updateBalances" type="button">Update balances</button></div>
+        <div id="potList"></div>
+      </section>
+
+      <section class="sidecard">
+        <div class="subhead"><h2>Wants</h2><span class="pill" id="wantsPill">$0 / pay</span></div>
+        <p class="sidecopy">Things you'd like to buy. Each waits a cooling-off period, then gets a date when it's paid for without touching savings.</p>
+        <div id="wantList"></div>
+        <button class="addrow" id="addWant" type="button">＋ Add something you want</button>
+      </section>
+
+      <section class="sidecard tipcard">
+        <h2><span class="tipstar">✳</span> A gentle nudge</h2>
+        <p id="tipText">Set bills aside on payday. What stays is yours to spend, without guessing.</p>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<button class="fab" id="addExpense" type="button"><span aria-hidden="true">＋</span> Log spending</button>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<div class="overlay" id="overlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modalhead"><h2 id="modalTitle"></h2><button type="button" class="close" id="closeModal" aria-label="Close">×</button></div>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

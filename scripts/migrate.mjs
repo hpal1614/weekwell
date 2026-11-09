@@ -1,29 +1,16 @@
-import dotenv from "dotenv";
-import { neon } from "@neondatabase/serverless";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { loadEnv, databaseUrl } from '../lib/env.js';
+import { createDb } from '../lib/db.js';
+import { migrate } from '../lib/migrate.js';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.join(here, "..", ".env.local") });
-dotenv.config({ path: path.join(here, "..", ".env") });
-const databaseUrl = process.env.DATABASE_URL || process.env.NEON_DATABASE_URL;
-if (!databaseUrl) throw new Error("Missing DATABASE_URL. Run Neon deploy first.");
-
-const sql = neon(databaseUrl);
-await sql`CREATE TABLE IF NOT EXISTS weekwell_schema_migrations (
-  version text PRIMARY KEY,
-  applied_at timestamptz NOT NULL DEFAULT now()
-)`;
-
-const version = "0001_weekwell_state";
-const [applied] = await sql`SELECT version FROM weekwell_schema_migrations WHERE version = ${version}`;
-if (!applied) {
-  const migration = await readFile(path.join(here, "..", "migrations", `${version}.sql`), "utf8");
-  await sql.unsafe(migration);
-  await sql`INSERT INTO weekwell_schema_migrations (version) VALUES (${version})`;
-  console.log(`Applied ${version}`);
-} else {
-  console.log(`${version} already applied`);
+loadEnv();
+// Vercel preview copies deliberately get no database settings: skip instead of failing the build.
+if (process.env.VERCEL_ENV === 'preview' && !process.env.DATABASE_URL && !process.env.NEON_DATABASE_URL) {
+  console.log('Preview build without DATABASE_URL: skipping migrations.');
+  process.exit(0);
 }
-
+const db = await createDb(databaseUrl());
+try {
+  await migrate(db, console.log);
+} finally {
+  await db.end();
+}

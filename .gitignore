@@ -12,3 +12,4 @@ research_notes/
 work/
 npm-debug.log*
 
+.vercel/
