@@ -2,7 +2,7 @@
 // Plain functions only: no DOM, no network. Shared by the browser UI, the
 // server and the tests. All money is stored and calculated in whole cents.
 
-export const STATE_VERSION = 2;
+export const STATE_VERSION = 3;
 export const PERIODS = ['weekly', 'fortnightly', 'monthly', 'quarterly', 'annual'];
 export const PAY_PERIODS = ['weekly', 'fortnightly', 'monthly'];
 export const COMMITMENT_KINDS = ['Invoice', 'Afterpay', 'Bill', 'Other'];
@@ -121,9 +121,18 @@ export function weeksUntil(dueISO, today) {
  */
 export function commitmentNeed(commitment, today) {
   const amount = Number(commitment.amount) || 0;
-  if (!commitment.due) return { status: 'now', perWeek: amount };
-  if (commitment.due < today) return { status: 'overdue', perWeek: amount };
-  return { status: 'scheduled', perWeek: Math.round(amount / weeksUntil(commitment.due, today)) };
+  if (!commitment.due) return { status: 'now', perWeek: amount, savedSoFar: 0 };
+  if (commitment.due < today) return { status: 'overdue', perWeek: amount, savedSoFar: 0 };
+  // A fixed weekly amount from the day it was added, so it doesn't creep up every week
+  // (the old version re-divided the full amount by the weeks left, which overstated it).
+  const from = commitment.addedOn && commitment.addedOn <= today ? commitment.addedOn : today;
+  const perWeek_ = Math.round(amount / weeksUntil(commitment.due, from));
+  const savedSoFar = Math.min(amount, perWeek_ * Math.floor(daysBetween(from, today) / 7));
+  return { status: 'scheduled', perWeek: perWeek_, savedSoFar };
+}
+
+export function weeksPerPay(period) {
+  return { weekly: 1, fortnightly: 2, monthly: 52 / 12 }[period] || 1;
 }
 
 export function weeklyIncome(pay) {
@@ -144,7 +153,8 @@ export function weeklyPlan(state, today) {
     if (need.status === 'now') dueNow += need.perWeek;
   }
   const spending = state.budgets.reduce((sum, b) => sum + (Number(b.limit) || 0), 0);
-  const saving = Number(state.saving) || 0;
+  const perPay = (state.plan?.savingsPerPay || 0) + (state.plan?.emergencyPerPay || 0);
+  const saving = Math.round(perPay / weeksPerPay(state.pay?.period));
   const left = income - bills - commitments - spending - saving;
   return { income, bills, commitments, overdue, dueNow, spending, saving, left };
 }
@@ -220,7 +230,6 @@ export function defaultState() {
     version: STATE_VERSION,
     pay: { amount: 0, period: 'fortnightly', nextPayday: null },
     weekStartsOn: 1,
-    saving: 0,
     budgets: [
       { id: 'cat_groceries', name: 'Groceries', icon: '🥬', limit: 0 },
       { id: 'cat_transport', name: 'Transport', icon: '🚆', limit: 0 },
@@ -229,8 +238,11 @@ export function defaultState() {
     ],
     bills: [],
     commitments: [],
-    goals: [],
     afterpayBalance: 0,
+    balances: { everyday: 0, updatedOn: null },
+    pots: { buffer: { target: 50000, balance: 0 }, emergency: { target: 200000, balance: 0 }, savings: { balance: 0 } },
+    plan: { savingsPerPay: 0, emergencyPerPay: 0 },
+    wants: [],
   };
 }
 
@@ -263,7 +275,7 @@ const cents = (v) => toCents(v);
  * Transactions are returned separately because they now live in their own table.
  * Never throws on odd input: anything unrecognised falls back to a safe default.
  */
-export function migrateLegacyState(old, today) {
+function legacyToV2(old, today) {
   const src = old && typeof old === 'object' ? old : {};
   const base = defaultState();
   const budgets = Array.isArray(src.budgets) && src.budgets.length
@@ -272,7 +284,7 @@ export function migrateLegacyState(old, today) {
   if (!budgets.some((b) => b.name === 'Other')) budgets.push({ id: 'cat_other', name: 'Other', icon: '☀️', limit: 0 });
 
   const state = {
-    version: STATE_VERSION,
+    version: 2,
     pay: { amount: cents(src.income), period: PAY_PERIODS.includes(src.payPeriod) ? src.payPeriod : 'fortnightly', nextPayday: null },
     weekStartsOn: 1,
     saving: cents(src.saving),
@@ -292,6 +304,40 @@ export function migrateLegacyState(old, today) {
   })).filter((t) => t.amount > 0);
 
   return { state, transactions };
+}
+
+/**
+ * Version 2 -> 3: adds balances, pots, the savings commitment and wants.
+ * Old weekly "saving" becomes a per-pay savings commitment; old goals become wants
+ * (already decided on, so no cooling-off).
+ */
+function v2ToV3(v2, today) {
+  const base = defaultState();
+  const period = PAY_PERIODS.includes(v2.pay?.period) ? v2.pay.period : 'fortnightly';
+  return {
+    version: STATE_VERSION,
+    pay: { amount: v2.pay?.amount || 0, period, nextPayday: isISODate(v2.pay?.nextPayday) ? v2.pay.nextPayday : null },
+    weekStartsOn: Number.isInteger(v2.weekStartsOn) ? v2.weekStartsOn : 1,
+    budgets: v2.budgets,
+    bills: (v2.bills || []).map((b) => ({ ...b, nextDue: isISODate(b.nextDue) ? b.nextDue : null })),
+    commitments: (v2.commitments || []).map((c) => ({ ...c, addedOn: isISODate(c.addedOn) ? c.addedOn : today })),
+    afterpayBalance: v2.afterpayBalance || 0,
+    balances: base.balances,
+    pots: base.pots,
+    plan: { savingsPerPay: Math.round((v2.saving || 0) * weeksPerPay(period)), emergencyPerPay: 0 },
+    wants: (v2.goals || []).filter((g) => g.amount > 0).map((g) => ({ id: g.id || newId('want'), name: g.name, price: g.amount, saved: 0, addedOn: today, coolUntil: today })),
+  };
+}
+
+/**
+ * Bring any stored state (version 1, 2 or 3) up to the current version.
+ * Transactions found inside version 1 data are returned separately.
+ */
+export function upgradeState(payload, today) {
+  if (payload && payload.version === STATE_VERSION) return { state: payload, transactions: [] };
+  if (payload && payload.version === 2) return { state: v2ToV3(payload, today), transactions: [] };
+  const { state, transactions } = legacyToV2(payload, today);
+  return { state: v2ToV3(state, today), transactions };
 }
 
 function slug(text) {
@@ -316,9 +362,15 @@ export function validateState(state) {
   if (state.pay && !PAY_PERIODS.includes(state.pay.period)) errors.push('pay.period is invalid');
   if (state.pay && state.pay.nextPayday != null && !isISODate(state.pay.nextPayday)) errors.push('pay.nextPayday must be a date');
   if (!Number.isInteger(state.weekStartsOn) || state.weekStartsOn < 0 || state.weekStartsOn > 6) errors.push('weekStartsOn must be 0–6');
-  if (!isCents(state.saving) || state.saving < 0) errors.push('saving must be whole cents ≥ 0');
   if (!isCents(state.afterpayBalance) || state.afterpayBalance < 0) errors.push('afterpayBalance must be whole cents ≥ 0');
-  for (const key of ['budgets', 'bills', 'commitments', 'goals']) if (!Array.isArray(state[key])) errors.push(`${key} must be a list`);
+  for (const key of ['budgets', 'bills', 'commitments', 'wants']) if (!Array.isArray(state[key])) errors.push(`${key} must be a list`);
+  const b = state.balances;
+  if (!b || !isCents(b.everyday) || (b.updatedOn != null && !isISODate(b.updatedOn))) errors.push('balances are invalid');
+  const p = state.pots;
+  const potOk = (pot, withTarget) => pot && isCents(pot.balance) && pot.balance >= 0 && (!withTarget || (isCents(pot.target) && pot.target >= 0));
+  if (!p || !potOk(p.buffer, true) || !potOk(p.emergency, true) || !potOk(p.savings, false)) errors.push('pots are invalid');
+  const pl = state.plan;
+  if (!pl || !isCents(pl.savingsPerPay) || pl.savingsPerPay < 0 || !isCents(pl.emergencyPerPay) || pl.emergencyPerPay < 0) errors.push('plan amounts must be whole cents ≥ 0');
   if (errors.length) return errors;
 
   const names = new Set();
@@ -332,16 +384,20 @@ export function validateState(state) {
     if (!isText(b.id) || !isText(b.name)) errors.push(`bills[${i}] needs an id and name`);
     if (!isCents(b.amount) || b.amount < 0) errors.push(`bills[${i}].amount must be whole cents ≥ 0`);
     if (!PERIODS.includes(b.period)) errors.push(`bills[${i}].period is invalid`);
+    if (b.nextDue != null && !isISODate(b.nextDue)) errors.push(`bills[${i}].nextDue must be a date`);
   });
   state.commitments.forEach((c, i) => {
     if (!isText(c.id) || !isText(c.name)) errors.push(`commitments[${i}] needs an id and name`);
     if (!isCents(c.amount) || c.amount < 0) errors.push(`commitments[${i}].amount must be whole cents ≥ 0`);
     if (c.due != null && !isISODate(c.due)) errors.push(`commitments[${i}].due must be a date`);
     if (!isText(c.kind)) errors.push(`commitments[${i}].kind is invalid`);
+    if (c.addedOn != null && !isISODate(c.addedOn)) errors.push(`commitments[${i}].addedOn must be a date`);
   });
-  state.goals.forEach((g, i) => {
-    if (!isText(g.id) || !isText(g.name)) errors.push(`goals[${i}] needs an id and name`);
-    if (!isCents(g.amount) || g.amount < 0) errors.push(`goals[${i}].amount must be whole cents ≥ 0`);
+  state.wants.forEach((w, i) => {
+    if (!isText(w.id) || !isText(w.name)) errors.push(`wants[${i}] needs an id and name`);
+    if (!isCents(w.price) || w.price <= 0) errors.push(`wants[${i}].price must be whole cents > 0`);
+    if (!isCents(w.saved) || w.saved < 0) errors.push(`wants[${i}].saved must be whole cents ≥ 0`);
+    if (!isISODate(w.addedOn) || !isISODate(w.coolUntil)) errors.push(`wants[${i}] needs addedOn and coolUntil dates`);
   });
   return errors;
 }

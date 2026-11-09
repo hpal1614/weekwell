@@ -28,9 +28,9 @@ npm start
 
 `npm start` builds the page into `dist/`, applies any new SQL migrations, then serves the app at `http://127.0.0.1:3000`. The server binds to localhost because the API has no login. Add authentication before exposing it on a public network.
 
-### Upgrading from the first version
+### Upgrading from an earlier version
 
-The first time the new version starts, it converts your existing data automatically:
+The first time a new version starts, it converts your existing data automatically:
 
 - amounts become whole cents
 - spending entries move into their own table and get real dates
@@ -56,6 +56,7 @@ Before converting, it stores an exact copy of your original data in the `weekwel
 | Path | What's there |
 |---|---|
 | `src/engine.js` | All money maths (cents, weeks, plan, history, data upgrade, validation). Plain functions used by both the browser and the server. |
+| `src/forecast.js` | 12-month look-ahead: safe to save each pay, lowest point, savings split, wants and “Can I buy it now?” |
 | `src/app.js`, `src/api.js`, `src/index.html`, `src/styles.css` | The page |
 | `lib/app.js` | API routes |
 | `lib/db.js` | Database wrapper: Neon for real use, plain Postgres on localhost for tests |

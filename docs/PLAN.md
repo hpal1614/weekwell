@@ -1,6 +1,6 @@
 # Weekwell: plan
 
-Phases 0–2 are **built**, and Phase 3 onward is a proposal. This page explains the money system the app is being built around, and why.
+Phases 0–3 are **built**, and Phase 4 onward is a proposal. This page explains the money system the app is being built around, and why.
 
 > General information to help you organise your own money, not personal financial advice. Bank rates and conditions change, so confirm them in the Up and CommBank apps before relying on them.
 
@@ -159,14 +159,20 @@ If you still want it afterwards, it becomes a goal with a date. **Your locked sa
 - [x] Weeks follow the calendar. A new week starts automatically and nothing is deleted.
 - [x] History: the last 8 weeks against your limits (tap a week to open it), and average per week per category over the last 4 full weeks.
 
-### Phase 3: Forecast and the five pots
+### ✅ Phase 3: Forecast and the five pots (built)
 
-- [ ] Bills get a next due date. Afterpay purchases create their 4 fortnightly instalments automatically.
-- [ ] Sinking funds with "saved so far", which fixes the growing weekly amount for dated payments.
-- [ ] 52-week forecast, chart of the projected balance, and the lowest point highlighted.
-- [ ] Headline numbers: **Safe to spend until payday** and **Safe to save this pay**.
-- [ ] Pots: Bills & buffer, Emergency fund, Wants, Locked savings, with targets and split settings.
-- [ ] Wants: cooling-off, the "Can I buy it now?" check, purchase date, and "get there sooner" suggestions.
+- [x] **Looking ahead** panel: a 365-day day-by-day forecast of the money you can spend, which is CommBank + Up Spending + the Bills & buffer Saver.
+- [x] **Safe to save each pay**: the largest steady amount that never lets money drop below your buffer. Tested so that $1 more per pay would break the buffer.
+- [x] **Lowest point ahead**, with a chart (hover or tap for any day's balance and what comes out) and a list of everything coming out in the next 8 weeks.
+- [x] **Tight time ahead** warning when the forecast dips below the buffer even with no saving, weeks before it happens.
+- [x] Uses your *actual* spending average when it's higher than your limits, so the forecast isn't optimistic.
+- [x] Bills get an optional next due date that moves forward automatically. Bills without one are still counted as a weekly share.
+- [x] Dated payments get a fixed weekly set-aside from the day they were added, plus "put aside so far". This fixes the creeping amount.
+- [x] **Your pots**: Everyday, Bills & buffer, Emergency fund (with goal), Locked savings, with balances you update.
+- [x] **Savings plan**: a suggested split, you choose the amounts, and it refuses anything more than is safe. Wants get whatever is left.
+- [x] **Wants**: cooling-off (1 / 7 / 30 days by price), a "saved by" date, reordering, **Can I buy it now?** (yes / not yet + when + how to get there sooner), and Bought.
+- [x] **Afterpay purchase**: enter the instalment amount and how many are left, and the fortnightly instalments are added.
+- [x] Data upgraded automatically again (version 3), with a backup snapshot first. Old backup files still restore.
 
 ### Phase 4: Payday check-in and savings protection
 
@@ -192,13 +198,17 @@ If you still want it afterwards, it becomes a goal with a date. **Your locked sa
 
 ---
 
-## 5. Questions before Phase 3
+## 5. Your setup (from your answers)
 
-1. **Where does your pay land:** CommBank or Up? And which day, and is it always the same amount?
-2. **Are you happy to create separate Up Savers** for Bills & buffer, Emergency fund, Locked savings, and one per want (e.g. DDJ)?
-3. **Which of your bills come out of Up, and which still come out of CommBank?**
-4. **Starter emergency fund target:** $1,000, $2,000, or one month of essentials?
-5. **Default savings / wants split** once the emergency fund is full: 70/30 to start?
+- **Pay lands in CommBank.** On payday, move the amounts from "Each payday move" out of CommBank into your Up Savers. Then tap **Update balances**.
+- **Your existing Up Saver ($1,000) is your only savings, so it becomes the Emergency fund.** That's a solid starter. It's set to grow to $2,000 by default (you can change this). Using it in a real emergency is fine and only affects that Saver's rate for the month.
+- **Create a new Up Saver called "Locked savings"** for the money you never touch, plus a **"Bills & buffer"** Saver and one Saver per want (e.g. "DDJ").
+- **Bills:** add them when ready, with their next due dates if you know them.
+
+### Still open
+
+- Payday: which day, and is the amount always the same? Enter it under Settings.
+- Which bills come out of Up and which out of CommBank. Phase 4 uses this to tell you exactly what to leave in each account.
 
 ## Sources
 

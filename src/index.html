@@ -56,10 +56,12 @@
         <div class="allocation">
           <div><label>Bills + commitments</label><strong id="billsTotal">$0</strong><div class="microhint" id="billsHint">weekly + due soon</div></div>
           <div><label>Everyday spending</label><strong id="spendTotal">$0</strong><div class="microhint">weekly limits</div></div>
-          <div><label>Savings target</label><button class="editable" id="savingDisplay" type="button" title="Change savings target">$0</button><div class="microhint">tap amount to adjust</div></div>
-          <div><label>Still to plan</label><strong id="leftTotal">$0</strong><div class="microhint">before other living costs</div></div>
+          <div><label>Savings + emergency</label><button class="editable" id="savingDisplay" type="button" title="Change your savings plan">$0</button><div class="microhint">per week · tap to change</div></div>
+          <div><label id="leftLabel">Still to plan</label><strong id="leftTotal">$0</strong><div class="microhint" id="leftHint">before other living costs</div></div>
         </div>
       </section>
+
+      <section class="panel forecast" id="forecastPanel" aria-live="polite"></section>
 
       <div class="sectionhead">
         <h2 id="spendPlanTitle">Your weekly spending plan</h2>
@@ -96,18 +98,19 @@
         <div id="commitmentList"></div>
         <div class="billdue" id="commitmentSummary"></div>
         <button class="addrow" id="addCommitment" type="button">＋ Add one-off payment</button>
+        <button class="addrow" id="addAfterpay" type="button">＋ Add Afterpay purchase</button>
       </section>
 
       <section class="sidecard goalcard">
-        <div class="goal-top"><h2>Costs to prepare for</h2><span aria-hidden="true">🌱</span></div>
-        <p>Goals are listed here for now. Planning when you can afford them is coming in the next update.</p>
-        <div id="goalList"></div>
-        <button class="addrow" id="addGoal" type="button">＋ Add a goal</button>
-        <div class="goalamount">
-          <label for="savingInput">Savings</label><strong>$</strong>
-          <input id="savingInput" type="number" min="0" step="5" value="0">
-          <span>/ week</span>
-        </div>
+        <div class="subhead"><h2>Your pots</h2><button class="pill pillbtn" id="updateBalances" type="button">Update balances</button></div>
+        <div id="potList"></div>
+      </section>
+
+      <section class="sidecard">
+        <div class="subhead"><h2>Wants</h2><span class="pill" id="wantsPill">$0 / pay</span></div>
+        <p class="sidecopy">Things you'd like to buy. Each waits a cooling-off period, then gets a date when it's paid for without touching savings.</p>
+        <div id="wantList"></div>
+        <button class="addrow" id="addWant" type="button">＋ Add something you want</button>
       </section>
 
       <section class="sidecard tipcard">

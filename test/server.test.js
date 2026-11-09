@@ -53,7 +53,7 @@ const legacy = {
 test('existing data in the old format is upgraded once, with a backup of the original', { skip }, async () => {
   await db.query('INSERT INTO weekwell_state (id, payload) VALUES (1, $1::jsonb)', [JSON.stringify(legacy)]);
   const { body: state } = await call('GET', '/api/state');
-  assert.equal(state.version, 2);
+  assert.equal(state.version, 3);
   assert.equal(state.pay.amount, 200000);
   assert.equal(state.afterpayBalance, 12000);
   const { body: tx } = await call('GET', '/api/transactions');
@@ -70,21 +70,21 @@ test('existing data in the old format is upgraded once, with a backup of the ori
 test('first run with a private seed file in the old format is upgraded too', { skip }, async () => {
   seed = legacy;
   const { body } = await call('GET', '/api/state');
-  assert.equal(body.version, 2);
-  assert.equal(body.saving, 5000);
+  assert.equal(body.version, 3);
+  assert.equal(body.plan.savingsPerPay, 10000);
 });
 
 test('first run without any seed starts blank', { skip }, async () => {
   const { body } = await call('GET', '/api/state');
-  assert.equal(body.version, 2);
+  assert.equal(body.version, 3);
   assert.equal(body.pay.amount, 0);
 });
 
 test('saving state validates whole cents', { skip }, async () => {
   const { body: state } = await call('GET', '/api/state');
-  assert.equal((await call('PUT', '/api/state', { ...state, saving: 12.5 })).status, 400);
-  assert.equal((await call('PUT', '/api/state', { ...state, saving: 1250 })).status, 200);
-  assert.equal((await call('GET', '/api/state')).body.saving, 1250);
+  assert.equal((await call('PUT', '/api/state', { ...state, plan: { savingsPerPay: 12.5, emergencyPerPay: 0 } })).status, 400);
+  assert.equal((await call('PUT', '/api/state', { ...state, plan: { savingsPerPay: 1250, emergencyPerPay: 0 } })).status, 200);
+  assert.equal((await call('GET', '/api/state')).body.plan.savingsPerPay, 1250);
 });
 
 test('spending entries: add, edit, filter by date, rename category, delete', { skip }, async () => {
@@ -125,6 +125,14 @@ test('backup round trip: export, change things, restore; current data is snapsho
   assert.deepEqual(names, ['Keep me']);
   const [snap] = await db.query(`SELECT payload FROM weekwell_backups WHERE reason = 'before restore from file'`);
   assert.equal(snap.payload.transactions.length, 2);
+});
+
+test('a backup made by the previous version (state version 2) can still be restored', { skip }, async () => {
+  await call('GET', '/api/state');
+  const old = { app: 'weekwell', exportedAt: '2026-11-09T00:00:00Z', transactions: [{ date: '2026-11-09', amount: 500, category: 'Other', name: 'Old backup' }],
+    state: { version: 2, pay: { amount: 100000, period: 'weekly', nextPayday: null }, weekStartsOn: 1, saving: 0, budgets: [{ id: 'o', name: 'Other', icon: '•', limit: 0 }], bills: [], commitments: [], goals: [], afterpayBalance: 0 } };
+  assert.equal((await call('POST', '/api/import', old)).status, 200);
+  assert.equal((await call('GET', '/api/state')).body.version, 3);
 });
 
 test('a failed restore changes nothing', { skip }, async () => {

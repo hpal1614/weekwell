@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  categoryAverages, commitmentNeed, defaultState, formatMoney, migrateLegacyState, parseLegacyDate,
+  categoryAverages, commitmentNeed, defaultState, formatMoney, parseLegacyDate, upgradeState,
   perWeek, spentByCategory, toCents, validateBackup, validateState, validateTransaction, weekStart,
   weeklyHistory, weeklyPlan, weeksUntil,
 } from '../src/engine.js';
@@ -33,12 +33,23 @@ test('weeks start on the chosen day', () => {
 
 test('BUG FIX: overdue commitments stay in the plan at the full amount', () => {
   const overdue = commitmentNeed({ amount: 30000, due: '2026-11-01' }, TODAY);
-  assert.deepEqual(overdue, { status: 'overdue', perWeek: 30000 });
+  assert.deepEqual(overdue, { status: 'overdue', perWeek: 30000, savedSoFar: 0 });
   const undated = commitmentNeed({ amount: 5000, due: null }, TODAY);
-  assert.deepEqual(undated, { status: 'now', perWeek: 5000 });
+  assert.deepEqual(undated, { status: 'now', perWeek: 5000, savedSoFar: 0 });
   const future = commitmentNeed({ amount: 70000, due: '2026-12-21' }, TODAY); // 6 weeks away
   assert.equal(weeksUntil('2026-12-21', TODAY), 6);
   assert.equal(future.perWeek, Math.round(70000 / 6));
+});
+
+test('BUG FIX: the weekly set-aside for a dated payment stays the same each week', () => {
+  // $700 due 21 Dec, added 6 weeks earlier on 9 Nov.
+  const c = { amount: 70000, due: '2026-12-21', addedOn: '2026-11-09' };
+  const weekly = [0, 7, 14, 21, 28, 35].map((d) => {
+    const day = new Date(Date.UTC(2026, 10, 9 + d)).toISOString().slice(0, 10);
+    return commitmentNeed(c, day);
+  });
+  assert.deepEqual(weekly.map((w) => w.perWeek), [11667, 11667, 11667, 11667, 11667, 11667]);
+  assert.deepEqual(weekly.map((w) => w.savedSoFar), [0, 11667, 23334, 35001, 46668, 58335]);
 });
 
 test('weekly plan: an overdue bill reduces what is left, it does not increase it', () => {
@@ -82,28 +93,45 @@ test('upgrading the original data keeps every number, converted to cents', () =>
     transactions: [{ name: 'Market', amount: 45.5, category: 'Groceries', icon: '🥬', date: 'Mon 9 Nov' }, { name: 'Gift', amount: 12, category: 'Other', icon: '☀️', date: 'Sun 8 Nov' }],
     week: 3,
   };
-  const { state, transactions } = migrateLegacyState(legacy, TODAY);
+  const { state, transactions } = upgradeState(legacy, TODAY);
   assert.deepEqual(validateState(state), []);
+  assert.equal(state.version, 3);
   assert.equal(state.pay.amount, 215050);
-  assert.equal(state.saving, 10000);
+  assert.equal(state.plan.savingsPerPay, 20000); // $100/week saving -> $200 per fortnightly pay
   assert.deepEqual(state.budgets.map((b) => [b.name, b.limit]), [['Groceries', 12000], ['Transport', 4000], ['Meals out', 5000], ['Other', 0]]);
   assert.equal(state.bills[0].amount, 3500);
   assert.equal(state.commitments[0].amount, 18025);
   assert.equal(state.commitments[0].due, null);
   assert.equal(state.commitments[0].kind, 'Water');
   assert.equal(state.commitments[1].due, '2026-11-20');
-  assert.equal(state.goals[0].amount, 85000);
+  assert.equal(state.commitments[1].addedOn, TODAY);
+  assert.deepEqual(state.wants.map((w) => [w.name, w.price, w.saved, w.coolUntil]), [['Rego', 85000, 0, TODAY]]);
   assert.equal(state.afterpayBalance, 15000);
   assert.deepEqual(transactions, [
     { date: '2026-11-09', amount: 4550, category: 'Groceries', name: 'Market' },
     { date: '2026-11-08', amount: 1200, category: 'Other', name: 'Gift' },
   ]);
   assert.equal('week' in state, false);
+  assert.equal('saving' in state, false);
+});
+
+test('a version 2 state (from the previous update) upgrades to version 3', () => {
+  const v2 = { version: 2, pay: { amount: 200000, period: 'fortnightly', nextPayday: '2026-11-13' }, weekStartsOn: 4, saving: 5000,
+    budgets: defaultState().budgets, bills: [{ id: 'b', name: 'Rent', icon: '⌂', amount: 45000, period: 'weekly' }],
+    commitments: [{ id: 'c', name: 'Invoice', amount: 1000, due: null, kind: 'Invoice' }], goals: [{ id: 'g', name: 'DDJ', amount: 100000 }, { id: 'z', name: 'Empty', amount: 0 }], afterpayBalance: 0 };
+  const { state, transactions } = upgradeState(v2, TODAY);
+  assert.deepEqual(validateState(state), []);
+  assert.deepEqual(transactions, []);
+  assert.equal(state.weekStartsOn, 4);
+  assert.equal(state.pay.nextPayday, '2026-11-13');
+  assert.equal(state.bills[0].nextDue, null);
+  assert.deepEqual(state.wants.map((w) => w.name), ['DDJ']);
+  assert.equal(upgradeState(state, TODAY).state, state); // already current: untouched
 });
 
 test('upgrading odd or empty data never throws', () => {
   for (const input of [null, {}, { budgets: 'x', bills: null }, { income: 'abc' }]) {
-    const { state } = migrateLegacyState(input, TODAY);
+    const { state } = upgradeState(input, TODAY);
     assert.deepEqual(validateState(state), []);
   }
 });
@@ -111,7 +139,7 @@ test('upgrading odd or empty data never throws', () => {
 test('validation rejects dollars-with-decimals and bad shapes', () => {
   const s = defaultState();
   assert.deepEqual(validateState(s), []);
-  assert.notDeepEqual(validateState({ ...s, saving: 10.5 }), []);
+  assert.notDeepEqual(validateState({ ...s, plan: { savingsPerPay: 10.5, emergencyPerPay: 0 } }), []);
   assert.notDeepEqual(validateState({ ...s, version: 1 }), []);
   assert.notDeepEqual(validateState({ ...s, budgets: [...s.budgets, { id: 'x', name: 'Groceries', icon: '', limit: 0 }] }), []);
   assert.deepEqual(validateTransaction({ date: TODAY, amount: 100, category: 'Other', name: 'x' }), []);
