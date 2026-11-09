@@ -203,3 +203,15 @@ test('money coming in: fill the emergency fund first, then 70/30 savings and wan
   s.incoming = [{ id: 'tax', name: 'Tax refund', amount: 300000, expectedOn: null }];
   assert.equal(forecast(s, [], TODAY).perPay, before);
 });
+
+test('a different amount for one pay, and a pay already ticked off, are handled', () => {
+  const s = example({ pay: { amount: 200000, period: 'fortnightly', nextPayday: '2026-11-13' } });
+  const pays = (st) => buildCashflow(st, TODAY, 0).days.flatMap((d) => d.events.filter((e) => e.kind === 'pay').map((e) => [d.date, e.amount]));
+  assert.deepEqual(pays(s).slice(0, 2), [['2026-11-13', 200000], ['2026-11-27', 200000]]);
+  s.payday = { date: '2026-11-13', amount: 176000 }; // a day off
+  assert.deepEqual(pays(s).slice(0, 2), [['2026-11-13', 176000], ['2026-11-27', 200000]]);
+  s.payday = { date: '2026-11-13', amount: 176000, received: true }; // already in the balance
+  const flow = buildCashflow(s, TODAY, 0);
+  assert.deepEqual(pays(s)[0], ['2026-11-27', 200000]);
+  assert.equal(flow.paydays[0], '2026-11-27'); // no savings move on the ticked-off day either
+});

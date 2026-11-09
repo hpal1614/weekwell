@@ -4,6 +4,7 @@ import {
   fromCents, inRange, longDate, newId, perWeek, shortDate, spentByCategory, toCents, todayISO,
   weekLabel, weekStart, weeklyHistory, weeklyPlan, weeksPerPay,
 } from './engine.js';
+import { LESSONS, nextLesson, shouldShowLesson } from './lessons.js';
 import { allocation, canBuyNow, coolingDays, emergencyFull, forecast, paydayPlan, suggestSplit, wantsTimeline, windfallSplit } from './forecast.js';
 
 const $ = (id) => document.getElementById(id);
@@ -353,7 +354,7 @@ function stepDate(anchor, period, k) {
 }
 
 function renderForecast(f, now) {
-  const paydayHtml = f.perPay !== undefined ? renderPaydayPlan(f) : '';
+  const paydayHtml = renderPaydayCard(f);
   $('paydayPanel').innerHTML = paydayHtml;
   $('paydayPanel').hidden = !paydayHtml;
   const panel = $('forecastPanel');
@@ -399,56 +400,180 @@ function renderForecast(f, now) {
 
 const CHECK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg>';
 
-function renderPaydayPlan(f) {
+// ---------- payday card: one place for what to do with your pay ----------
+
+/** The payday you're working through (after ticking "pay landed"), until the next payday comes. */
+function currentSession(f) {
+  const pd = state.payday;
+  if (!pd?.received || !Array.isArray(pd.steps)) return null;
+  if (f.nextPay && today() >= f.nextPay) return null;
+  return pd;
+}
+
+/** Turn the plan for a payday into a checklist you tick off one by one. */
+function buildSteps(p) {
+  const steps = [];
+  const one = (x, overdue) => {
+    const name = x.name.split(' (')[0];
+    return { key: `com:${x.id}`, kind: 'commitment', ref: x.id, overdue, label: /^pay\b/i.test(name) ? name : `Pay ${name}`, amount: x.amount, done: false };
+  };
+  for (const x of p.dueAlready) steps.push(one(x, true));
+  for (const x of p.onPayday.filter((y) => !y.auto && y.id)) steps.push(one(x, false));
+  const autoNow = p.onPayday.filter((y) => y.auto);
+  const keepList = [...autoNow, ...p.beforeNext];
+  const keep = keepList.reduce((a, x) => a + x.amount, 0) + p.undated;
+  if (keep) {
+    steps.push({ key: 'keep', kind: 'keep', label: `Leave this in your account for bills until ${shortDate(p.next)}`, amount: keep, done: false,
+      detail: [...keepList.map((x) => `${x.name.split(' (')[0]}${x.date !== p.pay ? ` (${shortDate(x.date)})` : ''} ${formatMoney(x.amount)}`), ...(p.undated ? [`bills with no due date yet ${formatMoney(p.undated)}`] : [])].join(' · ') });
+  }
+  steps.push({ key: 'spend', kind: 'spend', label: `Your spending money until ${shortDate(p.next)}`, amount: p.spending, done: false,
+    detail: p.spendingBreakdown.map((b) => `${b.icon} ${b.name} ${formatMoney(b.amount)}`).join(' · ') });
+  if (p.moves.savings) steps.push({ key: 'move:savings', kind: 'move', pot: 'savings', label: `Move to ${potName('savings')}`, amount: p.moves.savings, done: false });
+  if (p.moves.emergency) steps.push({ key: 'move:emergency', kind: 'move', pot: 'emergency', label: `Move to ${potName('emergency')}`, amount: p.moves.emergency, done: false });
+  if (p.moves.wants) steps.push({ key: 'move:wants', kind: 'wants', label: `Move to your wish list${state.wants[0] ? ` (#1 ${state.wants[0].name})` : ''}`, amount: p.moves.wants, done: false });
+  return steps;
+}
+
+function moneyBar(segs) {
+  const bar = segs.filter((x) => x.amount > 0).map((x) => `<i class="seg seg-${x.key}" style="flex-grow:${x.amount}" title="${x.label}: ${formatMoney(x.amount)}"></i>`).join('');
+  const legend = segs.map((x) => `<li><span class="dot seg-${x.key}"></span><span>${x.label}</span><b>${formatMoney(x.amount)}</b></li>`).join('');
+  return `<div class="pp-flow"><div class="pp-bar" role="img" aria-label="Where your money goes">${bar}</div><ul class="pp-legend">${legend}</ul></div>`;
+}
+
+function stepRow(st, n, { locked = false } = {}) {
+  const exists = st.kind !== 'commitment' || state.commitments.some((c) => c.id === st.ref);
+  const done = st.done || !exists;
+  return `<li class="ckstep ${done ? 'done' : ''} ${locked && !done ? 'locked' : ''}">
+    <button class="ckbox" type="button" data-step="${esc(st.key)}" ${done || locked ? 'disabled' : ''} aria-label="${done ? 'Done' : 'Mark done'}: ${esc(st.label)}">${done ? CHECK_SVG : `<span>${n}</span>`}</button>
+    <div class="ckmain"><div class="cklabel">${esc(st.label)}</div>${st.detail ? `<div class="ckdetail">${esc(st.detail)}</div>` : ''}
+      ${st.kind === 'commitment' && !done && !locked ? `<button class="linkbtn ckpart" type="button" data-pay-com="${esc(st.ref)}">Paying only part?</button>` : ''}</div>
+    <b class="ckamt">${formatMoney(st.amount)}</b></li>`;
+}
+
+function renderPaydayCard(f) {
+  const session = currentSession(f);
+  if (session) {
+    const steps = session.steps;
+    const doneCount = steps.filter((st) => st.done || (st.kind === 'commitment' && !state.commitments.some((c) => c.id === st.ref))).length;
+    const total = steps.length + 1; // + "pay landed"
+    const all = doneCount === steps.length;
+    const pct = Math.round(((doneCount + 1) / total) * 100);
+    const head = `<div class="sectionhead"><div><h2>${all ? 'Payday done 🎉' : 'Payday checklist'}</h2><div class="pp-sub">${longDate(session.date)} · ${formatMoney(session.amount)} landed · ${doneCount + 1} of ${total} done</div></div></div>
+      <div class="ckprogress"><i style="width:${pct}%"></i></div>`;
+    if (all) {
+      return `${head}<p class="pp-done-note">Everything for this pay is sorted. Next payday is <b>${longDate(f.nextPay)}</b>. Until then, your spending money is in “Spending”.</p>
+        <details class="ckmore"><summary>See what you did</summary><ol class="checklist2">${steps.map((st, i) => stepRow(st, i + 2)).join('')}</ol></details>`;
+    }
+    return `${head}${session.summary ? moneyBar(session.summary) : ''}
+      <ol class="checklist2"><li class="ckstep done"><span class="ckbox" aria-hidden="true">${CHECK_SVG}</span><div class="ckmain"><div class="cklabel">Pay landed</div></div><b class="ckamt">${formatMoney(session.amount)}</b></li>
+      ${steps.map((st, i) => stepRow(st, i + 2)).join('')}</ol>
+      <p class="hint">Each tick updates your balances and Savers for you. Changed your mind? Tap Undo.</p>`;
+  }
+  if (f.perPay === undefined) return '';
   const p = paydayPlan(f, state);
   if (!p) return '';
-  const keep = p.beforeNextTotal + p.undated;
+  const days = daysBetween(today(), p.pay);
   const left = p.leftBeforeNext ? p.leftBeforeNext.amount : 0;
-  const total = p.startCash + p.payAmount;
+  const keep = p.beforeNextTotal + p.undated + p.onPayday.filter((x) => x.auto).reduce((a, x) => a + x.amount, 0);
+  const payNow = p.onPayday.filter((x) => !x.auto).reduce((a, x) => a + x.amount, 0);
   const segs = [
-    { key: 'now', label: 'Pay on payday', amount: p.onPaydayTotal },
+    { key: 'now', label: 'Pay on payday', amount: payNow },
     { key: 'keep', label: 'Keep for bills', amount: keep },
     { key: 'spend', label: 'Spending money', amount: p.spending },
     { key: 'save', label: 'To your Savers', amount: p.movesTotal },
     { key: 'left', label: 'Left over', amount: Math.max(0, left) },
   ];
-  const bar = segs.filter((x) => x.amount > 0).map((x) => `<i class="seg seg-${x.key}" style="flex-grow:${x.amount}" title="${x.label}: ${formatMoney(x.amount)}"></i>`).join('');
-  const legend = segs.map((x) => `<li><span class="dot seg-${x.key}"></span><span>${x.label}</span><b>${formatMoney(x.amount)}</b></li>`).join('');
-
-  // One row per payment. One-offs get a round tick to mark them paid (fully or in part);
-  // bills that come out automatically just say "auto".
-  const row = (x) => {
-    const action = x.auto ? '<span class="autotag" title="Comes out automatically">auto</span>'
-      : x.id ? `<button class="checkbtn" type="button" data-pay-com="${esc(x.id)}" aria-label="Pay ${esc(x.name)}">${CHECK_SVG}</button>`
-        : '<span class="checkspacer"></span>';
-    const meta = [x.date && x.date !== p.pay ? shortDate(x.date) : '', x.paid ? `${formatMoney(x.paid)} paid so far` : '', x.note || ''].filter(Boolean).join(' · ');
-    return `<li class="checkrow">${action}<div class="checkmain"><div class="checkname">${esc(x.name)}</div>${meta ? `<div class="checkmeta">${esc(meta)}</div>` : ''}</div><b class="checkamt">${formatMoney(x.amount)}</b></li>`;
-  };
-  const section = (icon, title, amount, body, extra = '') => `<section class="pp-section"><header><span class="pp-icon" aria-hidden="true">${icon}</span><h3>${title}</h3><b>${formatMoney(amount)}</b></header>${body}${extra}</section>`;
-
-  const due = p.dueAlready.length
-    ? `<div class="notice warn duecheck"><b>Already due. Did you pay these?</b><div class="fieldhint">Tap the circle to mark one paid, fully or in part.</div><ul class="checklist">${p.dueAlready.map((x) => row({ ...x, date: null, note: x.due ? `was due ${shortDate(x.due)}` : 'no due date' })).join('')}</ul></div>`
-    : '';
-  const before = p.lowBeforePay ? `<div class="notice">Until payday your lowest point is <b>${formatMoney(p.lowBeforePay.amount)}</b> on ${longDate(p.lowBeforePay.date)}. Keep spending light.</div>` : '';
-  const sections = [
-    p.onPaydayTotal ? section('💳', 'Pay on payday', p.onPaydayTotal, `<ul class="checklist">${p.onPayday.map(row).join('')}</ul>`) : '',
-    keep ? section('🏠', `Keep for bills until ${shortDate(p.next)}`, keep, `<ul class="checklist">${p.beforeNext.map(row).join('')}${p.undated ? row({ name: 'Bills with no due date yet', amount: p.undated, auto: false, note: 'weekly share · add their due dates to see exact days' }) : ''}</ul>`) : '',
-    section('🛒', `Spending money until ${shortDate(p.next)}`, p.spending, `<ul class="checklist">${p.spendingBreakdown.map((b) => `<li class="checkrow"><span class="checkspacer emoji">${esc(b.icon)}</span><div class="checkmain"><div class="checkname">${esc(b.name)}</div></div><b class="checkamt">${formatMoney(b.amount)}</b></li>`).join('')}</ul>`),
-    section('🌱', p.committed ? 'Move to your Savers' : 'Move to your Savers (suggested)', p.movesTotal,
-      p.movesTotal > 0
-        ? `<ul class="checklist">${[['savings', p.moves.savings], ['emergency', p.moves.emergency]].filter(([, a]) => a > 0).map(([k, a]) => `<li class="checkrow"><span class="checkspacer emoji">→</span><div class="checkmain"><div class="checkname">${esc(potName(k))}</div></div><b class="checkamt">${formatMoney(a)}</b></li>`).join('')}${p.moves.wants ? `<li class="checkrow"><span class="checkspacer emoji">→</span><div class="checkmain"><div class="checkname">Wants</div></div><b class="checkamt">${formatMoney(p.moves.wants)}</b></li>` : ''}</ul>`
-        : '<p class="pp-empty">Nothing spare to move this pay. Everything else is covered first, and that’s fine.</p>',
-      p.committed || !p.movesTotal ? '' : '<button class="linkbtn" data-open="plan">Choose my split →</button>'),
-  ].join('');
+  const steps = buildSteps(p);
+  const usual = state.pay.amount;
   const ok = left >= f.buffer;
-  const result = p.leftBeforeNext
-    ? `<div class="pp-result ${ok ? 'good' : left >= 0 ? 'tight' : 'bad'}"><div><div class="pp-result-label">Left on ${shortDate(p.leftBeforeNext.date)}, the night before your next pay</div><div class="pp-result-note">${ok ? 'Your safety buffer stays untouched. 👌' : left >= 0 ? `Below your ${formatMoney(f.buffer)} buffer, but you don’t run out. Go easy this fortnight.` : 'You’d run out before your next pay. Pay something later or move less to Savers.'}</div></div><b>${formatMoney(left)}</b></div>`
-    : '';
-  return `<div class="sectionhead"><div><h2>Payday plan · ${longDate(p.pay)}</h2><div class="pp-sub">${formatMoney(p.payAmount)} pay + ${formatMoney(p.startCash)} already in your account = <b>${formatMoney(total)}</b> to plan with</div></div></div>
-    ${due}${before}
-    <div class="pp-flow"><div class="pp-bar" role="img" aria-label="Where your money goes">${bar}</div><ul class="pp-legend">${legend}</ul></div>
-    ${sections}${result}
-    <button class="savebtn pp-done" type="button" data-open="balances">Done on payday? Update balances</button>`;
+  return `<div class="sectionhead"><div><h2>Next payday · ${longDate(p.pay)}</h2><div class="pp-sub">${days === 0 ? 'Today!' : days === 1 ? 'Tomorrow' : `In ${days} days`} · here’s exactly what to do with it</div></div></div>
+    <div class="payinput"><label for="thisPay">This pay</label><div class="payfield"><span>$</span><input id="thisPay" type="number" inputmode="decimal" step="0.01" min="0" value="${fromCents(p.payAmount).toFixed(2)}"></div>
+      <div class="fieldhint">${p.payAmount !== usual ? `Changed for this pay only. Your usual pay is ${formatMoney(usual)}. <button class="linkbtn" type="button" id="resetPay">Use usual</button>` : 'Your usual pay. Getting a different amount this time (e.g. a day off)? Change it here.'}</div></div>
+    ${p.lowBeforePay ? `<div class="notice">Until then your lowest point is <b>${formatMoney(p.lowBeforePay.amount)}</b> on ${longDate(p.lowBeforePay.date)}. Keep spending light.</div>` : ''}
+    ${moneyBar(segs)}
+    <ol class="checklist2">
+      <li class="ckstep next"><button class="ckbox" type="button" id="payLanded" aria-label="My pay landed"><span>1</span></button><div class="ckmain"><div class="cklabel">When your pay lands, tick this</div><div class="ckdetail">Adds it to your account and unlocks the steps below.</div></div><b class="ckamt">${formatMoney(p.payAmount)}</b></li>
+      ${steps.map((st, i) => stepRow(st, i + 2, { locked: !st.overdue })).join('')}
+    </ol>
+    <div class="pp-result ${ok ? 'good' : left >= 0 ? 'tight' : 'bad'}"><div><div class="pp-result-label">Left on ${p.leftBeforeNext ? shortDate(p.leftBeforeNext.date) : ''}, the night before your next pay</div><div class="pp-result-note">${ok ? 'Your safety buffer stays untouched. 👌' : left >= 0 ? `Below your ${formatMoney(f.buffer)} buffer, but you don’t run out. Go easy this fortnight.` : 'You’d run out before your next pay. Pay something later or move less to Savers.'}</div></div><b>${formatMoney(left)}</b></div>`;
+}
+
+/** Pay a one-off in full: it leaves your account and stops counting as owed. */
+function payFull(c) {
+  if (c.kind === 'Afterpay') state.afterpayBalance = Math.max(0, state.afterpayBalance - c.amount);
+  state.balances.everyday -= c.amount;
+  state.commitments = state.commitments.filter((x) => x !== c);
+  markStep(`com:${c.id}`);
+}
+
+function markStep(key) {
+  const st = state.payday?.steps?.find((x) => x.key === key);
+  if (st) st.done = true;
+}
+
+function afterStep() {
+  const pd = state.payday;
+  if (pd?.steps && pd.steps.every((st) => st.done || (st.kind === 'commitment' && !state.commitments.some((c) => c.id === st.ref)))) {
+    celebrate('Payday done 🎉 Everything’s sorted until next payday.', { undo: true });
+    return true;
+  }
+  return false;
+}
+
+async function tickStep(key) {
+  const before = structuredClone(state);
+  const pd = state.payday;
+  const f = forecast(state, transactions, today());
+  const live = !currentSession(f) && f.perPay !== undefined ? buildSteps(paydayPlan(f, state)) : null;
+  const st = (pd?.steps || []).find((x) => x.key === key) || live?.find((x) => x.key === key);
+  if (!st) return;
+  let message = 'Done ✓';
+  if (st.kind === 'commitment') {
+    const c = find(state.commitments, st.ref);
+    if (c) { payFull(c); message = `Paid ✓ ${c.name.split(' (')[0]}`; }
+  } else if (st.kind === 'move') {
+    state.pots[st.pot].balance += st.amount;
+    state.balances.everyday -= st.amount;
+    message = `Moved ${formatMoney(st.amount)} to ${potName(st.pot)} ✓`;
+  } else if (st.kind === 'wants') {
+    let left = st.amount;
+    for (const w of state.wants) {
+      const put = Math.min(left, Math.max(0, w.price - w.saved));
+      w.saved += put;
+      left -= put;
+      if (!left) break;
+    }
+    state.balances.everyday -= st.amount - left;
+    message = `Moved ${formatMoney(st.amount - left)} to your wants ✓`;
+  } else if (st.kind === 'keep') message = 'Bills money is set aside ✓';
+  else if (st.kind === 'spend') message = 'That’s yours to spend ✓';
+  if (pd?.steps) markStep(key);
+  await saveState();
+  planUndo(st.label, before);
+  if (!afterStep()) celebrate(message, { undo: true });
+}
+
+async function payLanded() {
+  const f = forecast(state, transactions, today());
+  if (f.perPay === undefined) return;
+  const p = paydayPlan(f, state);
+  const before = structuredClone(state);
+  const keep = p.beforeNextTotal + p.undated + p.onPayday.filter((x) => x.auto).reduce((a, x) => a + x.amount, 0);
+  const payNow = p.onPayday.filter((x) => !x.auto).reduce((a, x) => a + x.amount, 0);
+  state.balances = { everyday: state.balances.everyday + p.payAmount, updatedOn: today() };
+  state.payday = {
+    date: p.pay, amount: p.payAmount, received: true, steps: buildSteps(p),
+    summary: [
+      { key: 'now', label: 'Pay on payday', amount: payNow },
+      { key: 'keep', label: 'Keep for bills', amount: keep },
+      { key: 'spend', label: 'Spending money', amount: p.spending },
+      { key: 'save', label: 'To your Savers', amount: p.movesTotal },
+      { key: 'left', label: 'Left over', amount: Math.max(0, p.leftBeforeNext?.amount || 0) },
+    ],
+  };
+  await saveState();
+  planUndo('Pay landed', before);
+  celebrate(`Pay landed: ${formatMoney(p.payAmount)} 🎉 Now tick the steps one by one.`, { undo: true });
 }
 
 /** Pay a one-off payment in full or in part (the rest stays in the plan with a new date). */
@@ -493,9 +618,8 @@ function payForm(c) {
     if (!(amt > 0)) { $('formError').textContent = 'Enter how much you paid.'; return; }
     const before = structuredClone(state);
     const paidNow = Math.min(amt, c.amount);
-    if (c.kind === 'Afterpay') state.afterpayBalance = Math.max(0, state.afterpayBalance - paidNow);
     if (amt >= c.amount) {
-      state.commitments = state.commitments.filter((x) => x !== c);
+      payFull(c);
       await saveState();
       closeModal();
       planUndo(`Pay ${c.name.split(' (')[0]}`, before);
@@ -503,9 +627,12 @@ function payForm(c) {
     } else {
       const rest = $('restDue').value;
       if (!rest || rest < today()) { $('formError').textContent = 'Choose a date for the rest (today or later).'; return; }
+      if (c.kind === 'Afterpay') state.afterpayBalance = Math.max(0, state.afterpayBalance - paidNow);
+      state.balances.everyday -= paidNow;
       c.amount -= paidNow;
       c.paid = (c.paid || 0) + paidNow;
       c.due = rest;
+      markStep(`com:${c.id}`);
       await saveState();
       closeModal();
       planUndo(`Pay part of ${c.name.split(' (')[0]}`, before);
@@ -514,6 +641,49 @@ function payForm(c) {
   };
   $('overlay').classList.add('open');
   update();
+}
+
+// ---------- daily lesson ----------
+
+/** One short lesson, as a sheet that pops up the first time you open the app each day. */
+function lessonDialog(lesson = nextLesson(state.learning), { daily = false } = {}) {
+  const learning = state.learning || { seen: [] };
+  const seen = new Set(learning.seen || []);
+  const n = LESSONS.indexOf(lesson) + 1;
+  $('modalTitle').textContent = daily ? 'Today’s 1-minute money lesson' : 'Money lesson';
+  $('modalBody').innerHTML = `<div class="lesson">
+      <div class="lessonicon" aria-hidden="true">${lesson.icon}</div>
+      <div class="lessontopic">${esc(lesson.topic)} · ${n} of ${LESSONS.length}</div>
+      <h3>${esc(lesson.title)}</h3>
+      <p>${esc(lesson.body)}</p>
+      <div class="lessonaction"><b>Try this</b><span>${esc(lesson.action)}</span></div>
+      <div class="lessonprogress"><i style="width:${Math.round((seen.size / LESSONS.length) * 100)}%"></i></div>
+      <div class="lessonmeta">${seen.size} of ${LESSONS.length} lessons learned · general info, not personal advice · more at moneysmart.gov.au</div>
+      <div class="lessonbtns"><button type="button" class="laterbtn" id="lessonLater">Later</button><button type="button" class="savebtn" id="lessonGot">Got it ✓</button></div>
+    </div>`;
+  $('overlay').classList.add('open');
+  const learn = (fn) => {
+    const next = { ...learning, seen: [...new Set([...(learning.seen || []), lesson.id])].slice(-200) };
+    state.learning = next;
+    saveState();
+    fn?.();
+  };
+  $('lessonGot').onclick = () => {
+    const first = !seen.has(lesson.id);
+    learn(() => {
+      closeModal();
+      if (first) celebrate(state.learning.seen.length === LESSONS.length ? 'You’ve done every lesson 🎓 They’ll go round again.' : `Nice. ${state.learning.seen.length} of ${LESSONS.length} learned 📚`);
+    });
+  };
+  $('lessonLater').onclick = closeModal;
+}
+
+function maybeDailyLesson() {
+  if (!state || !shouldShowLesson(state.learning, today())) return;
+  if ($('overlay').classList.contains('open')) return;
+  state.learning = { seen: [], ...state.learning, lastShown: today() };
+  saveState();
+  lessonDialog(nextLesson(state.learning), { daily: true });
 }
 
 function drawChart(f) {
@@ -646,27 +816,59 @@ function incomingForm(existing) {
   });
 }
 
+// Wish list: "Must have" gets money first, then "Nice to have", then "Someday".
+// Within each group, the order you set (↑ ↓) decides which one is funded first.
+const PRIORITIES = [
+  { value: 'must', label: 'Must have', icon: '🔥' },
+  { value: 'nice', label: 'Nice to have', icon: '✨' },
+  { value: 'someday', label: 'Someday', icon: '🌙' },
+];
+const prioRank = (w) => Math.max(0, PRIORITIES.findIndex((p) => p.value === (w.priority || 'nice')));
+function sortWants() {
+  state.wants = state.wants.map((w, i) => [w, i]).sort((a, b) => prioRank(a[0]) - prioRank(b[0]) || a[1] - b[1]).map(([w]) => w);
+}
+function moveWant(w, dir) {
+  const list = state.wants;
+  const i = list.indexOf(w);
+  const j = i + dir;
+  if (j < 0 || j >= list.length) return false;
+  if (prioRank(list[j]) !== prioRank(w)) w.priority = list[j].priority || 'nice'; // crossing into the next group
+  [list[i], list[j]] = [list[j], list[i]];
+  sortWants();
+  return true;
+}
+
 function renderWants(f, now) {
   const alloc = f.perPay !== undefined ? allocation(state, f.perPay) : null;
   const wantsPerPay = alloc ? alloc.wants : 0;
   $('wantsPill').textContent = `${formatMoney(wantsPerPay)} / pay`;
   const timeline = f.paydays ? wantsTimeline(state.wants, f.paydays, wantsPerPay) : new Map();
+  let lastGroup = null;
   $('wantList').innerHTML = state.wants.length ? state.wants.map((w, i) => {
     const cooling = w.coolUntil > now;
     const ready = timeline.get(w.id);
+    const prio = PRIORITIES[prioRank(w)];
+    const groupHead = prio.value !== lastGroup ? `<div class="wantgroup">${prio.icon} ${prio.label}</div>` : '';
+    lastGroup = prio.value;
     let status;
     if (cooling) status = `Cooling off until ${shortDate(w.coolUntil)} · still want it then?`;
     else if (ready === 'now') status = '<span class="good">Fully saved ✓</span>';
     else if (ready) status = `Saved by ${longDate(ready)} at ${formatMoney(wantsPerPay)}/pay`;
     else if (f.status && f.status.startsWith('needs')) status = 'Finish setting up the forecast to get a date';
     else status = 'No wants money in your split yet';
-    return `<div class="wantrow">
-      <div class="wanttop"><button class="wantname" data-edit-want="${esc(w.id)}" title="Edit">${i + 1}. ${esc(w.name)}</button><span class="potamt">${formatMoney(w.saved)} / ${formatMoney(w.price)}</span></div>
+    return `${groupHead}<div class="wantrow prio-${prio.value}">
+      <div class="wanttop"><span class="wantrank">${i + 1}</span><button class="wantname" data-edit-want="${esc(w.id)}" title="Edit">${esc(w.name)}</button><span class="potamt">${formatMoney(w.saved)} / ${formatMoney(w.price)}</span></div>
       ${meter(w.saved, w.price)}
       <div class="wantstatus">${status}</div>
       <div class="wantactions">
+        <button class="prioChip prio-${prio.value}" type="button" data-prio-want="${esc(w.id)}" title="Change priority">${prio.icon} ${prio.label}</button>
+        <span class="orderbtns">
+          <button class="iconbtn" type="button" data-move-want="${esc(w.id)}" data-dir="-1" ${i === 0 ? 'disabled' : ''} aria-label="Fund ${esc(w.name)} sooner">↑</button>
+          <button class="iconbtn" type="button" data-move-want="${esc(w.id)}" data-dir="1" ${i === state.wants.length - 1 ? 'disabled' : ''} aria-label="Fund ${esc(w.name)} later">↓</button>
+        </span>
+      </div>
+      <div class="wantactions">
         <button class="smallbtn primary" data-check-want="${esc(w.id)}" ${cooling ? 'disabled' : ''}>Can I buy it now?</button>
-        ${i > 0 ? `<button class="smallbtn" data-up-want="${esc(w.id)}" title="Fund this one first">↑ First</button>` : ''}
         <button class="smallbtn" data-bought-want="${esc(w.id)}">Bought</button>
         <button class="iconbtn" data-del-want="${esc(w.id)}" aria-label="Remove ${esc(w.name)}">×</button>
       </div></div>`;
@@ -840,16 +1042,18 @@ function wantForm(existing) {
       { name: 'name', label: 'What is it?', placeholder: 'e.g. DDJ controller', value: existing?.name, required: true },
       { name: 'price', label: 'Price', type: 'money', value: existing?.price, required: true, min: 0.01, half: true },
       { name: 'saved', label: 'Already saved for it', type: 'money', value: existing?.saved ?? 0, half: true, hint: 'Money already sitting in its own Up Saver.' },
+      { name: 'priority', label: 'How much do you want it?', type: 'select', value: existing?.priority || 'nice', options: PRIORITIES.map((p) => ({ value: p.value, label: `${p.icon} ${p.label}` })), hint: 'Must have gets money first, then Nice to have, then Someday.' },
     ],
     note: existing ? '' : 'It waits a cooling-off period first: 1 day under $100, 7 days up to $500, 30 days above. If you still want it after that, it gets a date.',
     onSubmit: (v) => {
       if (v.saved > v.price) return 'Already saved can’t be more than the price.';
-      if (existing) Object.assign(existing, { name: v.name, price: v.price, saved: v.saved });
+      if (existing) Object.assign(existing, { name: v.name, price: v.price, saved: v.saved, priority: v.priority });
       else {
         const days = coolingDays(v.price);
-        state.wants.push({ id: newId('want'), name: v.name, price: v.price, saved: v.saved, addedOn: today(), coolUntil: addDays(today(), days) });
+        state.wants.push({ id: newId('want'), name: v.name, price: v.price, saved: v.saved, priority: v.priority, addedOn: today(), coolUntil: addDays(today(), days) });
         toast(`Added. Cooling off for ${days} day${days === 1 ? '' : 's'}.`);
       }
+      sortWants();
       saveState();
     },
   });
@@ -974,6 +1178,7 @@ function settingsForm() {
       { name: 'nameSavings', label: 'Your Up Saver for locked savings is called', placeholder: POT_DEFAULT_NAMES.savings, value: state.pots.savings.name, half: true },
       { name: 'nameEmergency', label: 'Your emergency fund Saver is called', placeholder: POT_DEFAULT_NAMES.emergency, value: state.pots.emergency.name, half: true },
       { name: 'nameBuffer', label: 'Your bills & buffer Saver is called', placeholder: POT_DEFAULT_NAMES.buffer, value: state.pots.buffer.name, hint: 'Optional. Use the names you see in the Up app, so the payday plan says exactly where to move money.' },
+      { name: 'lessons', label: 'Daily money lesson', type: 'select', value: state.learning?.off ? 'off' : 'on', options: [{ value: 'on', label: 'On: show one when I first open the app each day' }, { value: 'off', label: 'Off' }] },
     ],
     onSubmit: async (v) => {
       state.pay = { amount: v.amount, period: v.period, nextPayday: v.nextPayday };
@@ -982,6 +1187,7 @@ function settingsForm() {
       state.pots.savings = named(state.pots.savings, v.nameSavings);
       state.pots.emergency = named(state.pots.emergency, v.nameEmergency);
       state.pots.buffer = named(state.pots.buffer, v.nameBuffer);
+      state.learning = { seen: [], ...state.learning, off: v.lessons === 'off' };
       await ensureTransactionsFrom(addDays(weekStart(today(), state.weekStartsOn), -7 * (HISTORY_WEEKS - 1)));
       saveState();
       toast('Settings saved.');
@@ -1126,8 +1332,8 @@ function wireEvents() {
   $('syncUp').onclick = () => syncUp();
   // Coming back to the app (e.g. from the home screen) pulls in new Up purchases.
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && up.configured && (!up.lastSync || Date.now() - up.lastSync > 60000)) syncUp({ quiet: true }); });
-  $('tabAdd').onclick = () => spendingForm();
-  for (const b of document.querySelectorAll('[data-goto]')) b.onclick = () => setTab(b.dataset.goto, true);
+  onTap($('tabAdd'), () => spendingForm());
+  for (const b of document.querySelectorAll('[data-goto]')) onTap(b, () => setTab(b.dataset.goto, true));
   window.addEventListener('hashchange', () => setTab(location.hash.slice(1), false));
   $('addAfterpay').onclick = afterpayPurchaseForm;
   $('updateBalances').onclick = balancesForm;
@@ -1139,6 +1345,19 @@ function wireEvents() {
   $('editCategories').onclick = categoriesForm;
   $('closeModal').onclick = closeModal;
   $('undoBtn').onclick = undoLast;
+  // "This pay" on the payday card: a different amount for this one pay only.
+  document.body.addEventListener('change', (e) => {
+    if (e.target.id !== 'thisPay') return;
+    const f = forecast(state, transactions, today());
+    if (f.perPay === undefined) return;
+    const amount = Math.max(0, toCents(e.target.value));
+    const before = structuredClone(state);
+    state.payday = amount && amount !== state.pay.amount ? { date: f.nextPay, amount } : undefined;
+    if (!state.payday) delete state.payday;
+    saveState();
+    planUndo('Change this pay', before);
+    toast(amount !== state.pay.amount ? `This pay set to ${formatMoney(amount)}. Plan updated.` : 'Back to your usual pay.', { undo: true });
+  });
   document.addEventListener('keydown', (e) => {
     const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName || '');
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !typing && !$('overlay').classList.contains('open')) { e.preventDefault(); undoLast(); }
@@ -1175,8 +1394,7 @@ function wireEvents() {
       const c = find(state.commitments, d.paidCom);
       if (!c) return;
       const before = structuredClone(state);
-      if (c.kind === 'Afterpay') state.afterpayBalance = Math.max(0, state.afterpayBalance - c.amount);
-      state.commitments = state.commitments.filter((x) => x !== c);
+      payFull(c);
       saveState();
       planUndo(`Pay ${c.name.split(' (')[0]}`, before);
       celebrate(`Paid ✓ ${c.name.split(' (')[0]}. One less thing to think about.`, { undo: true });
@@ -1187,6 +1405,10 @@ function wireEvents() {
     }
     if (d.open) ({ balances: balancesForm, settings: settingsForm, plan: planForm })[d.open]?.();
     if (d.payCom) payForm(find(state.commitments, d.payCom));
+    if (t.id === 'openLesson') lessonDialog();
+    if (d.step) tickStep(d.step);
+    if (t.id === 'payLanded') payLanded();
+    if (t.id === 'resetPay') { const before = structuredClone(state); delete state.payday; saveState(); planUndo('Use usual pay', before); }
     if (d.editWant) wantForm(find(state.wants, d.editWant));
     if (d.editIncoming) incomingForm(find(state.incoming || [], d.editIncoming));
     if (d.delIncoming) {
@@ -1204,12 +1426,21 @@ function wireEvents() {
       balancesForm();
     }
     if (d.checkWant) buyCheckDialog(find(state.wants, d.checkWant));
-    if (d.upWant) {
-      const w = find(state.wants, d.upWant);
+    if (d.moveWant) {
+      const w = find(state.wants, d.moveWant);
       const before = structuredClone(state);
-      state.wants = [w, ...state.wants.filter((x) => x !== w)];
+      if (w && moveWant(w, Number(d.dir))) { saveState(); planUndo(`Move ${w.name}`, before); }
+    }
+    if (d.prioWant) {
+      const w = find(state.wants, d.prioWant);
+      if (!w) return;
+      const before = structuredClone(state);
+      const next = PRIORITIES[(prioRank(w) + 1) % PRIORITIES.length];
+      w.priority = next.value;
+      sortWants();
       saveState();
-      planUndo(`Move ${w.name} first`, before);
+      planUndo(`${w.name}: ${next.label}`, before);
+      toast(`${w.name}: ${next.icon} ${next.label}`, { undo: true });
     }
     if (d.boughtWant) {
       const w = find(state.wants, d.boughtWant);
@@ -1228,6 +1459,26 @@ function wireEvents() {
 }
 
 // ---------- tabs (phones & tablets) ----------
+
+/**
+ * Tap handler for the tab bar that works first time on iPhone.
+ * iOS swallows the first tap while the page is still gliding after a scroll (it only stops
+ * the scroll), so we act on the finger lifting instead of waiting for a click — unless the
+ * finger moved (a swipe). The click that may follow is ignored so nothing runs twice.
+ */
+function onTap(el, fn) {
+  let start = null;
+  let handledAt = 0;
+  el.addEventListener('touchstart', (e) => { const t = e.touches[0]; start = { x: t.clientX, y: t.clientY }; }, { passive: true });
+  el.addEventListener('touchend', (e) => {
+    const t = e.changedTouches[0];
+    if (!start || Math.hypot(t.clientX - start.x, t.clientY - start.y) > 12) return;
+    e.preventDefault();
+    handledAt = Date.now();
+    fn();
+  }, { passive: false });
+  el.addEventListener('click', () => { if (Date.now() - handledAt > 700) fn(); });
+}
 
 const TABS = ['home', 'spending', 'bills', 'savings'];
 
@@ -1297,6 +1548,7 @@ async function loadEverything() {
     $('syncUp').hidden = !up.configured;
     if (up.configured) syncUp({ quiet: true });
   } catch { /* Up sync is optional */ }
+  setTimeout(maybeDailyLesson, 900);
 }
 
 // ---------- sign in ----------
