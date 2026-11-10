@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { defaultState } from '../src/engine.js';
 import {
   addMonths, allocation, buildCashflow, canBuyNow, coolingDays, forecast, maxSafePerPay, nextPayday,
-  checkinDue, investReadiness, monthReview, netWorth, occurrences, paydayPlan, simulate, suggestSplit, wantsTimeline, windfallSplit,
+  checkinDue, currentEveryday, investReadiness, monthReview, netWorth, occurrences, paydayPlan, simulate, suggestSplit, wantsTimeline, windfallSplit,
 } from '../src/forecast.js';
 
 test('net worth: what you own minus Afterpay and money owed to friends (future costs are not debts)', () => {
@@ -274,4 +274,28 @@ test('ready to invest: every step has to pass, in the usual order', () => {
   s.commitments = [{ id: 'visa', name: 'Visa fee', amount: 450000, due: '2028-06-01', kind: 'Other', addedOn: TODAY }];
   r = investReadiness(s, forecast(s, [], TODAY), TODAY, { superChecked: true, lessonsDone: 7, lessonsTotal: 7 });
   assert.equal(r.next.key, 'big');
+});
+
+test('everyday balance keeps itself current: purchases and bills since come off, pay since goes on', () => {
+  const s = example();
+  s.balances = { everyday: 100000, updatedOn: '2026-11-01' };
+  s.pay = { amount: 200000, period: 'fortnightly', nextPayday: '2026-11-06' };
+  s.bills = [{ id: 'rent', name: 'Rent', icon: '⌂', amount: 45000, period: 'weekly', nextDue: '2026-11-04' }];
+  const tx = [
+    { date: '2026-11-01', amount: 999, category: 'Everyday', name: 'same day: already in the balance' },
+    { date: '2026-11-03', amount: 2500, category: 'Everyday', name: 'coffee' },
+    { date: TODAY, amount: 1000, category: 'Everyday', name: 'today' },
+  ];
+  const now = currentEveryday(s, tx, TODAY);
+  // Rent on 4 Nov only (11 Nov is after today); pay on 6 Nov.
+  assert.deepEqual({ purchases: now.purchases, bills: now.bills, pay: now.pay }, { purchases: 3500, bills: 45000, pay: 200000 });
+  assert.equal(now.amount, 100000 - 3500 - 45000 + 200000);
+  // A pay you ticked on the payday card is already in the balance.
+  s.payday = { date: '2026-11-06', amount: 200000, received: true };
+  assert.equal(currentEveryday(s, tx, TODAY).pay, 0);
+  // Entered today: nothing to adjust, and the forecast starts from it.
+  s.balances.updatedOn = TODAY;
+  assert.equal(currentEveryday(s, tx, TODAY).amount, 100000);
+  s.balances.updatedOn = '2026-11-08';
+  assert.equal(forecast(s, tx, TODAY).cash, 100000 - 1000 + s.pots.buffer.balance);
 });

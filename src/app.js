@@ -5,7 +5,7 @@ import {
   weekLabel, weekStart, weeklyHistory, weeklyPlan, weeksPerPay,
 } from './engine.js';
 import { LESSONS, nextLesson, shouldShowLesson } from './lessons.js';
-import { allocation, canBuyNow, checkinDue, coolingDays, emergencyFull, forecast, investReadiness, monthReview, netWorth, paydayPlan, suggestSplit, wantsTimeline, windfallSplit } from './forecast.js';
+import { allocation, canBuyNow, checkinDue, coolingDays, currentEveryday, emergencyFull, forecast, investReadiness, monthReview, netWorth, paydayPlan, suggestSplit, wantsTimeline, windfallSplit } from './forecast.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -137,27 +137,73 @@ async function undoLast() {
 }
 
 let saveGeneration = 0;
+let serverCopy = null; // what the server has, as far as this device knows
+
 function saveState() {
   render();
   const snapshot = structuredClone(state);
   const generation = saveGeneration;
   saveQueue = saveQueue
-    .then(() => (generation === saveGeneration ? api.putState(snapshot) : null))
+    .then(async () => {
+      if (generation !== saveGeneration) return;
+      await api.putState(snapshot);
+      serverCopy = snapshot;
+      showSaveProblem(null);
+    })
     .catch(async (error) => {
       if (error.status === 409) {
-        // Changed on another device: take the newer data rather than overwrite it,
-        // and drop any saves still queued from the old copy.
+        // Changed on another device or tab: keep BOTH. Drop the saves still queued from
+        // the old copy, then put your changes on top of the latest version and save that.
         saveGeneration++;
-        undoStack.length = 0;
-        refreshUndo();
-        try { await loadEverything({ quiet: true }); } catch { /* shown below */ }
-        toast(error.message);
+        await mergeAndSave();
         return;
       }
-      toast(`Save failed: ${error.message}`);
+      showSaveProblem(error);
     });
   return saveQueue;
 }
+
+/**
+ * Another device saved first. Take its latest copy and re-apply every part you changed here
+ * (balances, check-ins, pots, bills…), so nothing you entered is thrown away.
+ */
+async function mergeAndSave(attempt = 1) {
+  try {
+    const latest = await api.getState();
+    const mine = state;
+    const base = serverCopy || {};
+    const keys = new Set([...Object.keys(mine), ...Object.keys(base)]);
+    const merged = structuredClone(latest);
+    for (const k of keys) {
+      if (JSON.stringify(mine[k]) === JSON.stringify(base[k])) continue; // you didn't touch it
+      if (mine[k] === undefined) delete merged[k];
+      else merged[k] = structuredClone(mine[k]);
+    }
+    await api.putState(merged);
+    state = merged;
+    serverCopy = structuredClone(merged);
+    undoStack.length = 0; // old undo snapshots would bring back the other device's older data
+    refreshUndo();
+    render();
+    showSaveProblem(null);
+    toast('Saved ✓ Combined with changes from your other device.');
+  } catch (error) {
+    if (error.status === 409 && attempt < 3) return mergeAndSave(attempt + 1);
+    showSaveProblem(error);
+  }
+}
+
+/** A save that didn't go through stays on screen until it does (it never just disappears). */
+function showSaveProblem(error) {
+  const bar = $('saveBar');
+  if (!error) { bar.hidden = true; return; }
+  const offline = !navigator.onLine || /fetch|network/i.test(error.message);
+  $('saveBarText').textContent = offline
+    ? 'Not saved yet: no connection. Your changes are still here. It will save when you’re back online.'
+    : `Not saved: ${error.message}`;
+  bar.hidden = false;
+}
+window.addEventListener('online', () => { if (!$('saveBar').hidden) saveState(); });
 
 // Coming back to the app after a while (it can stay open on a phone for days):
 // fetch the latest first, so an old copy never overwrites newer changes.
@@ -180,6 +226,17 @@ async function ensureTransactionsFrom(start) {
 function byNewest(a, b) {
   if (a.date !== b.date) return a.date < b.date ? 1 : -1;
   return Number(b.id) - Number(a.id);
+}
+
+/** Everyday balance now: what you last entered, minus purchases and bills since, plus pay since. */
+function everydayNow() { return currentEveryday(state, transactions, today()); }
+function everydayHint() {
+  const now = everydayNow();
+  const upSpend = up.accounts?.find((a) => a.type === 'TRANSACTIONAL');
+  const parts = [];
+  if (now.amount !== now.base) parts.push(`Filled in from ${formatMoney(now.base)} on ${shortDate(now.from)}, minus what you’ve spent and bills since. Check it against your banks.`);
+  if (upSpend) parts.push(`Up Spending is ${formatMoney(upSpend.balance)} right now; add your CommBank everyday balance to that.`);
+  return parts.join(' ');
 }
 
 function potName(key) {
@@ -237,6 +294,7 @@ function render() {
   renderSummary(plan, f, now);
   renderForecast(f, now);
   renderHistory(now);
+  renderSortCard();
   renderSide(plan, now);
   renderPots(f);
   renderIncoming(f);
@@ -310,6 +368,57 @@ function renderHistory(now) {
         return `<tr><td>${esc(r.icon)} ${esc(r.name)}</td><td class="num ${over ? 'overtext' : ''}">${formatMoney(r.average)}</td><td class="num limitcol">${r.limit === null ? '—' : formatMoney(limit)}</td>
           <td class="barcell"><div class="meter"><i class="${over ? 'over' : ''}" style="width:${pct}%"></i></div></td><td class="num">${formatMoney(r.total)}</td></tr>`;
       }).join('')}</tbody>`;
+}
+
+// ---------- quick sort: purchases that landed in "Other" ----------
+
+const otherBudget = () => state.budgets.find((b) => /other|misc/i.test(b.name))?.name;
+function unsortedPurchases() {
+  const other = otherBudget();
+  const known = new Set(state.budgets.map((b) => b.name));
+  const ok = new Set(state.otherOk || []);
+  const from = addDays(today(), -42);
+  return transactions.filter((t) => t.date >= from && (t.category === other || !known.has(t.category)) && !ok.has(normaliseMerchant(t.name)));
+}
+
+function renderSortCard() {
+  const card = $('sortCard');
+  const list = unsortedPurchases();
+  card.hidden = !list.length;
+  if (!list.length) return;
+  const choices = state.budgets.filter((b) => b.name !== otherBudget());
+  card.innerHTML = `<div class="sectionhead"><div><h2>Sort ${list.length === 1 ? 'this purchase' : `these ${list.length} purchases`}</h2>
+      <div class="pp-sub">They landed in ${esc(otherBudget() || 'no category')}. Tap where each belongs, and Weekwell remembers the shop for next time.</div></div></div>
+    <ul class="sortlist">${list.slice(0, 8).map((t) => `<li>
+      <div class="sorttop"><b>${esc(t.name)}</b><span>${formatMoney(t.amount)} · ${shortDate(t.date)}</span></div>
+      <div class="sortchips">${choices.map((b) => `<button type="button" class="chipbtn" data-sort-tx="${esc(t.id)}" data-sort-to="${esc(b.name)}">${esc(b.icon)} ${esc(b.name)}</button>`).join('')}
+        <button type="button" class="chipbtn quiet" data-sort-ok="${esc(t.id)}">It’s right</button></div></li>`).join('')}</ul>
+    ${list.length > 8 ? `<p class="hint">${list.length - 8} more after these.</p>` : ''}`;
+}
+
+/** Move a purchase (and other recent ones from the same shop) to a category, and learn the shop. */
+async function sortPurchase(id, category) {
+  const t = find(transactions, id);
+  if (!t) return;
+  const shop = normaliseMerchant(t.name);
+  const same = unsortedPurchases().filter((x) => normaliseMerchant(x.name) === shop);
+  const beforeRules = structuredClone(state.merchantRules || {});
+  try {
+    const saved = [];
+    for (const x of same) saved.push([x, await api.updateTransaction(x.id, { name: x.name, amount: x.amount, category, date: x.date })]);
+    transactions = transactions.map((x) => saved.find(([o]) => o.id === x.id)?.[1] || x).sort(byNewest);
+    state.merchantRules = { ...(state.merchantRules || {}), [shop]: category };
+    saveState();
+    pushUndo(`Sort ${t.name}`, async () => {
+      for (const [o] of saved) {
+        const back = await api.updateTransaction(o.id, { name: o.name, amount: o.amount, category: o.category, date: o.date });
+        transactions = transactions.map((x) => (x.id === o.id ? back : x)).sort(byNewest);
+      }
+      state.merchantRules = beforeRules;
+      await saveState();
+    });
+    toast(`${t.name} → ${category}${same.length > 1 ? ` (${same.length} purchases)` : ''}. Next time it’s automatic.`, { undo: true });
+  } catch (error) { toast(error.message); }
 }
 
 function renderSide(plan, now) {
@@ -394,7 +503,7 @@ function renderForecast(f, now) {
   }
   const alloc = allocation(state, f.perPay);
   const suggestion = suggestSplit(state, f.perPay);
-  const stale = f.staleDays > 10 ? `<div class="notice">Balances were last updated ${f.staleDays} days ago. Update them after payday so the forecast stays accurate. <button class="inlinebtn light" data-open="balances">Update now</button></div>` : '';
+  const stale = f.staleDays > 21 ? `<div class="notice">Your everyday balance was last checked ${f.staleDays} days ago. Up purchases and bills since then are taken off automatically, but CommBank spending isn’t, so check it against your bank. <button class="inlinebtn light" data-open="balances">Check now</button></div>` : '';
   const spendNote = f.spending.usingActual ? `<div class="notice">The forecast uses what you actually spend (${formatMoney(f.spending.actual)}/week over the last 4 weeks), because it's more than your limits (${formatMoney(f.spending.limits)}/week).</div>` : '';
   const short = f.status === 'short'
     ? `<div class="notice warn"><b>Tight time ahead.</b> Around ${longDate(f.shortDate)}, money is forecast to drop ${f.shortDate < f.nextPay ? `${formatMoney(f.shortfall)} below $0 before your next pay arrives` : `${formatMoney(f.shortfall)} below your ${formatMoney(f.buffer)} buffer`}, even if you save nothing. Look at the dates below. Moving a payment, lowering a limit, or using the buffer now beats a credit card later.</div>` : '';
@@ -587,7 +696,7 @@ async function payLanded() {
   const before = structuredClone(state);
   const keep = p.beforeNextTotal + p.undated + p.onPayday.filter((x) => x.auto).reduce((a, x) => a + x.amount, 0);
   const payNow = p.onPayday.filter((x) => !x.auto).reduce((a, x) => a + x.amount, 0);
-  state.balances = { everyday: state.balances.everyday + p.payAmount, updatedOn: today() };
+  state.balances = { everyday: everydayNow().amount + p.payAmount, updatedOn: today() };
   state.payday = {
     date: p.pay, amount: p.payAmount, received: true, steps: buildSteps(p),
     summary: [
@@ -720,7 +829,7 @@ function celebrateInvestSteps(r) {
 // ---------- net worth & monthly check-in ----------
 
 function renderWorth() {
-  const w = netWorth(state);
+  const w = netWorth(state, everydayNow().amount);
   const list = state.checkins || [];
   // Compare with the latest check-in before today (today's own check-in would always show $0).
   const earlier = list.filter((c) => c.date < today());
@@ -768,7 +877,7 @@ function checkinSheet() {
     <p class="hint">${review.count ? `You spent ${formatMoney(review.total)} on everyday things${review.limitTotal ? ` against ${formatMoney(review.limitTotal)} of limits` : ''}. ${over.length ? `Over in: ${over.map((x) => x.name).join(', ')}.` : 'Every category stayed within its limit. 👏'}` : 'No spending logged in the last 4 weeks yet.'}</p>
     <ul class="items cireview">${rows}</ul>
     <div class="cistep"><span>2</span><b>Your balances today</b></div>
-    ${money('ci_everyday', 'Everyday: CommBank + Up Spending', state.balances.everyday)}
+    ${money('ci_everyday', 'Everyday: CommBank + Up Spending', everydayNow().amount, everydayHint())}
     <div class="two">${money('ci_emergency', `${potName('emergency')}`, fromUp(potName('emergency')) ?? state.pots.emergency.balance)}${money('ci_savings', `${potName('savings')}`, fromUp(potName('savings')) ?? state.pots.savings.balance)}</div>
     ${money('ci_buffer', `${potName('buffer')}`, fromUp(potName('buffer')) ?? state.pots.buffer.balance)}
     ${money('ci_super', 'Super balance (optional)', state.assets?.super ?? null, 'From your super fund’s app or myGov. Rough is fine.')}
@@ -780,7 +889,7 @@ function checkinSheet() {
     e.preventDefault();
     const read = (id) => { const v = $(id).value.trim(); return v === '' ? null : Math.max(0, toCents(v)); };
     const before = structuredClone(state);
-    const prev = netWorth(state).net;
+    const prev = netWorth(state, everydayNow().amount).net;
     const lastCheckin = state.checkins?.[state.checkins.length - 1];
     state.balances = { everyday: read('ci_everyday') ?? state.balances.everyday, updatedOn: today() };
     state.pots.emergency = { ...state.pots.emergency, balance: read('ci_emergency') ?? state.pots.emergency.balance };
@@ -954,9 +1063,13 @@ function meter(value, target) {
 function renderPots(f) {
   const p = state.pots;
   const alloc = f.perPay !== undefined ? allocation(state, f.perPay) : null;
-  const updated = state.balances.updatedOn ? `updated ${shortDate(state.balances.updatedOn)}` : 'not entered yet';
+  const now = everydayNow();
+  const updated = !state.balances.updatedOn ? 'not entered yet'
+    : now.amount !== now.base
+      ? `${formatMoney(now.base)} on ${shortDate(state.balances.updatedOn)}${now.purchases ? `, − ${formatMoney(now.purchases)} spent since` : ''}${now.bills ? `, − ${formatMoney(now.bills)} bills` : ''}${now.pay ? `, + ${formatMoney(now.pay)} pay` : ''}`
+      : `updated ${shortDate(state.balances.updatedOn)}`;
   $('potList').innerHTML = `
-    <div class="potrow"><div class="pottop"><div><div class="potname">Everyday</div><div class="potwhere">CommBank + Up Spending · ${updated}</div></div><span class="potamt">${formatMoney(state.balances.everyday)}</span></div></div>
+    <div class="potrow"><div class="pottop"><div><div class="potname">Everyday</div><div class="potwhere">CommBank + Up Spending · ${updated}</div></div><span class="potamt">${formatMoney(now.amount)}</span></div></div>
     <div class="potrow"><div class="pottop"><div><div class="potname">${esc(potName('buffer'))}</div><div class="potwhere">Kept in your everyday account · OK for bills & small surprises</div></div><span class="potamt">${formatMoney(p.buffer.balance)}</span></div>
       <div class="potnote">Buffer to keep: ${formatMoney(p.buffer.target)}</div></div>
     <div class="potrow"><div class="pottop"><div><div class="potname">${esc(potName('emergency'))}</div><div class="potwhere">Its own account · real emergencies only</div></div><span class="potamt">${formatMoney(p.emergency.balance)} / ${formatMoney(p.emergency.target)}</span></div>
@@ -1277,7 +1390,7 @@ function balancesForm() {
     title: 'Your balances right now',
     submitLabel: 'Save balances',
     fields: [
-      { name: 'everyday', label: 'Everyday: CommBank + Up Spending together', type: 'money', value: state.balances.everyday, required: true, hint: 'Everything you can spend or pay bills from today, not counting Up Savers.' },
+      { name: 'everyday', label: 'Everyday: CommBank + Up Spending together', type: 'money', value: everydayNow().amount, required: true, hint: `Everything you can spend or pay bills from today, not counting Savers. ${everydayHint()}` },
       { name: 'buffer', label: `${potName('buffer')} Saver`, type: 'money', value: fromUp(potName('buffer'))?.balance ?? state.pots.buffer.balance, half: true },
       { name: 'bufferTarget', label: 'Buffer to always keep', type: 'money', value: state.pots.buffer.target, half: true },
       { name: 'emergency', label: `${potName('emergency')} Saver`, type: 'money', value: fromUp(potName('emergency'))?.balance ?? state.pots.emergency.balance, half: true },
@@ -1596,6 +1709,18 @@ function wireEvents() {
     if (d.open) ({ balances: balancesForm, settings: settingsForm, plan: planForm })[d.open]?.();
     if (d.payCom) payForm(find(state.commitments, d.payCom));
     if (t.id === 'openLesson') lessonDialog();
+    if (t.id === 'saveRetry') saveState();
+    if (d.sortTx) sortPurchase(d.sortTx, d.sortTo);
+    if (d.sortOk) {
+      const tx = find(transactions, d.sortOk);
+      if (tx) {
+        const before = structuredClone(state);
+        state.otherOk = [...new Set([...(state.otherOk || []), normaliseMerchant(tx.name)])].slice(-300);
+        saveState();
+        planUndo(`Keep ${tx.name} in Other`, before);
+        toast(`${tx.name} stays in ${otherBudget() || 'Other'}.`, { undo: true });
+      }
+    }
     if ('checkin' in d) checkinSheet();
     if ('investSuper' in d) {
       const before = structuredClone(state);
@@ -1714,6 +1839,22 @@ function initialTab() {
 
 // ---------- start ----------
 
+/**
+ * Pots that live in Up (a Saver with the same name, like "Home deposit") take their balance
+ * straight from Up after each sync. Pots elsewhere (CommBank GoalSaver) stay as you entered them.
+ */
+function syncSaversFromUp() {
+  let changed = false;
+  for (const key of ['buffer', 'emergency', 'savings']) {
+    const match = up.accounts?.find((a) => a.type === 'SAVER' && normaliseMerchant(a.name) === normaliseMerchant(potName(key)));
+    if (match && Number.isInteger(match.balance) && match.balance >= 0 && match.balance !== state.pots[key].balance) {
+      state.pots[key] = { ...state.pots[key], balance: match.balance };
+      changed = true;
+    }
+  }
+  if (changed) saveState();
+}
+
 async function syncUp({ quiet = false } = {}) {
   if (!up.configured || up.syncing) return;
   up.syncing = true;
@@ -1723,6 +1864,7 @@ async function syncUp({ quiet = false } = {}) {
     const r = await api.upSync();
     up.accounts = r.accounts || up.accounts;
     up.lastSync = new Date();
+    syncSaversFromUp();
     if (r.added) {
       const fresh = await api.listTransactions(loadedFrom);
       transactions = fresh.sort(byNewest);
@@ -1740,6 +1882,7 @@ async function syncUp({ quiet = false } = {}) {
 
 async function loadEverything({ quiet = false } = {}) {
   state = await api.getState();
+  serverCopy = structuredClone(state);
   lastLoadedAt = Date.now();
   const from = addDays(weekStart(today(), state.weekStartsOn), -7 * (HISTORY_WEEKS - 1));
   transactions = (await api.listTransactions(from)).sort(byNewest);

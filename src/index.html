@@ -40,6 +40,7 @@
       <div class="avatar" id="avatar" aria-hidden="true">•</div>
     </div>
   </header>
+  <div class="savebar" id="saveBar" role="alert" hidden><span id="saveBarText"></span><button type="button" id="saveRetry">Try again</button></div>
 
   <div class="layout">
     <main class="maincol">
@@ -81,6 +82,8 @@
       </section>
 
       <section class="panel forecast" id="forecastPanel" data-tab="home" aria-live="polite"></section>
+
+      <section class="panel sortcard" id="sortCard" data-tab="spending" hidden></section>
 
       <div data-tab="spending">
         <div class="sectionhead">
