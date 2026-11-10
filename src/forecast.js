@@ -69,8 +69,41 @@ export function spendingEstimate(state, transactions, today) {
   return { weekly: Math.max(limits, actual), limits, actual, usingActual: actual > limits };
 }
 
-export function startingCash(state) {
-  return (state.balances?.everyday || 0) + (state.pots?.buffer?.balance || 0);
+export function startingCash(state, everyday = state.balances?.everyday || 0) {
+  return everyday + (state.pots?.buffer?.balance || 0);
+}
+
+/**
+ * Your everyday balance right now, without retyping it: the balance you last entered,
+ * minus purchases logged since (Up purchases sync in by themselves), minus bills that
+ * came out since, plus pay that arrived since (unless you ticked it on the payday card,
+ * which already added it). Bills and purchases on the day you entered it are assumed
+ * to be in that number already.
+ */
+export function currentEveryday(state, transactions, today) {
+  const base = state.balances?.everyday || 0;
+  const from = state.balances?.updatedOn;
+  const result = { amount: base, base, from, purchases: 0, purchaseCount: 0, bills: 0, pay: 0 };
+  if (!from || !isISODate(from) || from >= today) return result;
+  const bought = transactions.filter((t) => t.date > from && t.date <= today);
+  result.purchases = bought.reduce((a, t) => a + t.amount, 0);
+  result.purchaseCount = bought.length;
+  const after = addDays(from, 1);
+  const before = addDays(today, -1); // today's bills and pay are in the forecast itself
+  if (after <= before) {
+    for (const bill of state.bills) {
+      if (bill.nextDue && isISODate(bill.nextDue)) result.bills += occurrences(bill.nextDue, bill.period, after, before).length * bill.amount;
+    }
+    if (state.pay?.amount > 0 && isISODate(state.pay.nextPayday)) {
+      const session = state.payday;
+      for (const date of occurrences(state.pay.nextPayday, state.pay.period, after, before)) {
+        if (session?.received && session.date === date) continue;
+        result.pay += session?.date === date && session.amount > 0 ? session.amount : state.pay.amount;
+      }
+    }
+  }
+  result.amount = base - result.purchases - result.bills + result.pay;
+  return result;
 }
 
 /**
@@ -180,7 +213,8 @@ export function forecast(state, transactions, today, { extraToday = 0 } = {}) {
   if (missing) return { status: missing, spending };
 
   const buffer = state.pots.buffer.target;
-  const cash = startingCash(state);
+  const everydayNow = currentEveryday(state, transactions, today);
+  const cash = startingCash(state, everydayNow.amount);
   const flow = buildCashflow(state, today, spending.weekly, extraToday);
   const perPay = maxSafePerPay(flow, cash, buffer, state.pay.amount);
   const withPlan = simulate(flow, cash, perPay);
@@ -210,6 +244,7 @@ export function forecast(state, transactions, today, { extraToday = 0 } = {}) {
     upcoming,
     spending,
     staleDays,
+    everydayNow,
     flow,
   };
 }
@@ -474,10 +509,10 @@ function dollars(cents) {
  * Owe = Afterpay still to pay + money owed to friends (debts). Future costs like PR fees
  * aren't debts yet, so they don't count here (the plan already saves for them).
  */
-export function netWorth(state) {
+export function netWorth(state, everyday = state.balances?.everyday || 0) {
   const sum = (list) => list.reduce((a, c) => a + c.amount, 0);
   const own = [
-    { key: 'everyday', label: 'Everyday accounts', amount: state.balances?.everyday || 0 },
+    { key: 'everyday', label: 'Everyday accounts', amount: everyday },
     { key: 'buffer', label: state.pots.buffer.name || 'Bills & buffer', amount: state.pots.buffer.balance || 0 },
     { key: 'emergency', label: state.pots.emergency.name || 'Emergency fund', amount: state.pots.emergency.balance || 0 },
     { key: 'savings', label: state.pots.savings.name || 'Savings', amount: state.pots.savings.balance || 0 },
