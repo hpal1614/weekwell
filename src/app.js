@@ -582,7 +582,8 @@ function stepRow(st, n, { locked = false } = {}) {
   return `<li class="ckstep ${done ? 'done' : ''} ${locked && !done ? 'locked' : ''}">
     <button class="ckbox" type="button" data-step="${esc(st.key)}" ${done || locked ? 'disabled' : ''} aria-label="${done ? 'Done' : 'Mark done'}: ${esc(st.label)}">${done ? CHECK_SVG : `<span>${n}</span>`}</button>
     <div class="ckmain"><div class="cklabel">${esc(st.label)}</div>${st.detail ? `<div class="ckdetail">${esc(st.detail)}</div>` : ''}
-      ${st.kind === 'commitment' && !done && !locked ? `<button class="linkbtn ckpart" type="button" data-pay-com="${esc(st.ref)}">Paying only part?</button>` : ''}</div>
+      ${st.kind === 'commitment' && !done && !locked ? `<button class="linkbtn ckpart" type="button" data-pay-com="${esc(st.ref)}">Paying only part?</button>` : ''}
+      ${st.kind === 'move' && !done && !locked ? `<button class="linkbtn ckpart" type="button" data-step-amount="${esc(st.key)}">Moving a different amount?</button>` : ''}</div>
     <b class="ckamt">${formatMoney(st.amount)}</b></li>`;
 }
 
@@ -656,7 +657,7 @@ function afterStep() {
   return false;
 }
 
-async function tickStep(key) {
+async function tickStep(key, customAmount) {
   const before = structuredClone(state);
   const pd = state.payday;
   const f = forecast(state, transactions, today());
@@ -668,9 +669,15 @@ async function tickStep(key) {
     const c = find(state.commitments, st.ref);
     if (c) { payFull(c); message = `Paid ✓ ${c.name.split(' (')[0]}`; }
   } else if (st.kind === 'move') {
-    state.pots[st.pot].balance += st.amount;
-    state.balances.everyday -= st.amount;
-    message = `Moved ${formatMoney(st.amount)} to ${potName(st.pot)} ✓`;
+    const amount = customAmount ?? st.amount;
+    state.pots[st.pot].balance += amount;
+    state.balances.everyday -= amount;
+    if (amount !== st.amount) {
+      // Record what you actually moved, so the checklist shows it.
+      const saved = pd?.steps?.find((x) => x.key === key);
+      if (saved) saved.amount = amount;
+    }
+    message = `Moved ${formatMoney(amount)} to ${potName(st.pot)} ✓`;
   } else if (st.kind === 'wants') {
     let left = st.amount;
     for (const w of state.wants) {
@@ -1734,6 +1741,18 @@ function wireEvents() {
       if (l) lessonDialog(l);
     }
     if (d.step) tickStep(d.step);
+    if (d.stepAmount) {
+      const st = state.payday?.steps?.find((x) => x.key === d.stepAmount);
+      if (st) {
+        openForm({
+          title: `Move to ${potName(st.pot)}`,
+          submitLabel: 'Moved it ✓',
+          undo: false, // the tick below has its own undo
+          fields: [{ name: 'amount', label: 'How much did you move?', type: 'money', value: st.amount, required: true, min: 0.01, hint: `The plan says ${formatMoney(st.amount)}. Moving more this once is fine when the plan has room, like after a tax refund.` }],
+          onSubmit: (v) => { if (!(v.amount > 0)) return 'Enter the amount you moved.'; tickStep(st.key, v.amount); },
+        });
+      }
+    }
     if (t.id === 'payLanded') payLanded();
     if (t.id === 'resetPay') { const before = structuredClone(state); delete state.payday; saveState(); planUndo('Use usual pay', before); }
     if (d.editWant) wantForm(find(state.wants, d.editWant));
