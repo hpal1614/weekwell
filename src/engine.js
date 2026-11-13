@@ -404,6 +404,7 @@ export function validateState(state) {
   }
   if (state.learning != null && (typeof state.learning !== 'object' || (state.learning.seen != null && !Array.isArray(state.learning.seen)))) errors.push('learning is invalid');
   if (state.otherOk != null && (!Array.isArray(state.otherOk) || state.otherOk.length > 300 || state.otherOk.some((x) => typeof x !== 'string' || x.length > 200))) errors.push('otherOk is invalid');
+  if (state.paidLog != null && (!Array.isArray(state.paidLog) || state.paidLog.length > 200 || state.paidLog.some((x) => !x || typeof x.name !== 'string' || !isISODate(x.date) || !Number.isInteger(x.amount)))) errors.push('paidLog is invalid');
   if (state.invest != null && (typeof state.invest !== 'object' || Array.isArray(state.invest))) errors.push('invest is invalid');
   if (state.assets != null && (typeof state.assets !== 'object' || (state.assets.super != null && !isCents(state.assets.super)))) errors.push('assets is invalid');
   if (state.checkins != null && (!Array.isArray(state.checkins) || state.checkins.length > 240
