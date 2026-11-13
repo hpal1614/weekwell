@@ -442,10 +442,13 @@ function renderSide(plan, now) {
         return `<div class="billrow">
           <span class="billicon">${c.kind === 'Afterpay' ? '↗' : c.kind === 'Friend' ? '☺' : '◷'}</span>
           <button class="billmain" data-edit-com="${esc(c.id)}" title="Edit"><div class="billname">${esc(c.name)}${c.kind && c.kind !== c.name ? ` <span class="muted">· ${esc(c.kind)}</span>` : ''}</div><div class="billdue ${need.status === 'overdue' ? 'overdue' : ''}">${when}${c.paid ? ` · ${formatMoney(c.paid)} paid so far` : ''}</div></button>
-          <span class="billcost">${formatMoney(c.amount)}<button class="checkbtn small" type="button" data-pay-com="${esc(c.id)}" aria-label="Pay ${esc(c.name)}">${CHECK_SVG}</button><button class="iconbtn" data-del-com="${esc(c.id)}" title="Remove" aria-label="Remove ${esc(c.name)}">×</button></span>
+          <span class="billcost">${formatMoney(c.amount)}</span>
+          <div class="comactions"><button class="paybtn" type="button" data-pay-com="${esc(c.id)}">${CHECK_SVG} Paid</button><button class="smallbtn" type="button" data-edit-com="${esc(c.id)}">Edit</button><button class="smallbtn danger" type="button" data-del-com="${esc(c.id)}" aria-label="Remove ${esc(c.name)}">Remove</button></div>
         </div>`;
       }).join('')
     : '<div class="empty">No one-off payments. Add invoices, Afterpay instalments or anything due on a date.</div>';
+  const recent = paidSince(addDays(now, -20)).slice().reverse();
+  $('commitmentList').innerHTML += recent.length ? `<div class="paidrecent"><div class="subtitle">Paid recently</div>${recent.map((x) => `<div class="paidrow"><span class="paidtick" aria-hidden="true">${CHECK_SVG}</span><span>${esc(x.name)}</span><span class="muted">${x.date === now ? 'today' : shortDate(x.date)}</span><b>${formatMoney(x.amount)}</b></div>`).join('')}</div>` : '';
   $('commitmentSummary').textContent = state.commitments.length
     ? `Needed this week: ${formatMoney(plan.commitments)}${plan.overdue ? ` (incl. ${formatMoney(plan.overdue)} overdue)` : ''}${plan.dueNow ? ` (incl. ${formatMoney(plan.dueNow)} with no due date)` : ''}`
     : '';
@@ -553,6 +556,9 @@ function buildSteps(p) {
     const name = x.name.split(' (')[0];
     return { key: `com:${x.id}`, kind: 'commitment', ref: x.id, overdue, label: /^pay\b/i.test(name) ? name : `Pay ${name}`, amount: x.amount, done: false };
   };
+  for (const x of paidSince(previousPayday(p.pay))) {
+    steps.push({ key: `paid:${x.id}`, kind: 'paid', label: `Paid ${x.name}`, amount: x.amount, done: true, detail: x.date === today() ? 'Paid today' : `Paid ${shortDate(x.date)}` });
+  }
   for (const x of p.dueAlready) steps.push(one(x, true));
   for (const x of p.onPayday.filter((y) => !y.auto && y.id)) steps.push(one(x, false));
   const autoNow = p.onPayday.filter((y) => y.auto);
@@ -577,14 +583,17 @@ function moneyBar(segs) {
 }
 
 function stepRow(st, n, { locked = false } = {}) {
-  const exists = st.kind !== 'commitment' || state.commitments.some((c) => c.id === st.ref);
-  const done = st.done || !exists;
-  return `<li class="ckstep ${done ? 'done' : ''} ${locked && !done ? 'locked' : ''}">
-    <button class="ckbox" type="button" data-step="${esc(st.key)}" ${done || locked ? 'disabled' : ''} aria-label="${done ? 'Done' : 'Mark done'}: ${esc(st.label)}">${done ? CHECK_SVG : `<span>${n}</span>`}</button>
-    <div class="ckmain"><div class="cklabel">${esc(st.label)}</div>${st.detail ? `<div class="ckdetail">${esc(st.detail)}</div>` : ''}
-      ${st.kind === 'commitment' && !done && !locked ? `<button class="linkbtn ckpart" type="button" data-pay-com="${esc(st.ref)}">Paying only part?</button>` : ''}
+  const com = st.kind === 'commitment' ? state.commitments.find((c) => c.id === st.ref) : null;
+  const done = st.done || (st.kind === 'commitment' && !com);
+  const amount = com ? com.amount : st.amount; // follows edits to the payment
+  const label = com ? (/^pay\b/i.test(com.name.split(' (')[0]) ? com.name.split(' (')[0] : `Pay ${com.name.split(' (')[0]}`) : st.label;
+  const lockedWhy = locked && !done ? 'Tick “When your pay lands” first: this step uses your pay.' : '';
+  return `<li class="ckstep ${done ? 'done' : ''} ${lockedWhy ? 'locked' : ''}">
+    <button class="ckbox" type="button" ${lockedWhy ? `data-locked="${esc(lockedWhy)}"` : `data-step="${esc(st.key)}"`} ${done ? 'disabled' : ''} aria-label="${done ? 'Done' : lockedWhy ? 'Locked' : 'Mark done'}: ${esc(label)}">${done ? CHECK_SVG : `<span>${n}</span>`}</button>
+    <div class="ckmain"><div class="cklabel">${esc(label)}</div>${st.detail ? `<div class="ckdetail">${esc(st.detail)}</div>` : ''}
+      ${com && !done ? `<div class="ckactions">${!lockedWhy ? `<button class="linkbtn ckpart" type="button" data-pay-com="${esc(com.id)}">Paying only part?</button>` : ''}<button class="linkbtn ckpart" type="button" data-edit-com="${esc(com.id)}">Edit</button><button class="linkbtn ckpart danger" type="button" data-del-com="${esc(com.id)}">Remove</button></div>` : ''}
       ${st.kind === 'move' && !done && !locked ? `<button class="linkbtn ckpart" type="button" data-step-amount="${esc(st.key)}">Moving a different amount?</button>` : ''}</div>
-    <b class="ckamt">${formatMoney(st.amount)}</b></li>`;
+    <b class="ckamt">${formatMoney(amount)}</b></li>`;
 }
 
 function renderPaydayCard(f) {
@@ -630,7 +639,7 @@ function renderPaydayCard(f) {
     ${moneyBar(segs)}
     <ol class="checklist2">
       <li class="ckstep next"><button class="ckbox" type="button" id="payLanded" aria-label="My pay landed"><span>1</span></button><div class="ckmain"><div class="cklabel">When your pay lands, tick this</div><div class="ckdetail">Adds it to your account and unlocks the steps below.</div></div><b class="ckamt">${formatMoney(p.payAmount)}</b></li>
-      ${steps.map((st, i) => stepRow(st, i + 2, { locked: !st.overdue })).join('')}
+      ${steps.map((st, i) => stepRow(st, i + 2, { locked: !st.overdue && !(st.kind === 'commitment' && everydayNow().amount >= st.amount) })).join('')}
     </ol>
     <div class="pp-result ${ok ? 'good' : left >= 0 ? 'tight' : 'bad'}"><div><div class="pp-result-label">Left on ${p.leftBeforeNext ? shortDate(p.leftBeforeNext.date) : ''}, the night before your next pay</div><div class="pp-result-note">${ok ? 'Your safety buffer stays untouched. 👌' : left >= 0 ? `Below your ${formatMoney(f.buffer)} buffer, but you don’t run out. Go easy this fortnight.` : 'You’d run out before your next pay. Pay something later or move less to Savers.'}</div></div><b>${formatMoney(left)}</b></div>`;
 }
@@ -640,8 +649,17 @@ function payFull(c) {
   if (c.kind === 'Afterpay') state.afterpayBalance = Math.max(0, state.afterpayBalance - c.amount);
   state.balances.everyday -= c.amount;
   state.commitments = state.commitments.filter((x) => x !== c);
+  logPaid(c, c.amount);
   markStep(`com:${c.id}`);
 }
+
+/** Remember payments for a few weeks, so cards can show them ticked off instead of just vanishing. */
+function logPaid(c, amount) {
+  const entry = { id: newId('paid'), ref: c.id, name: c.name.split(' (')[0], amount, date: today(), kind: c.kind || 'Other' };
+  state.paidLog = [...(state.paidLog || []), entry].slice(-60);
+}
+function paidSince(date) { return (state.paidLog || []).filter((x) => x.date >= date && x.date <= today()); }
+function previousPayday(nextPay) { return addDays(nextPay, -Math.round(weeksPerPay(state.pay.period) * 7)); }
 
 function markStep(key) {
   const st = state.payday?.steps?.find((x) => x.key === key);
@@ -774,6 +792,7 @@ function payForm(c) {
       state.balances.everyday -= paidNow;
       c.amount -= paidNow;
       c.paid = (c.paid || 0) + paidNow;
+      logPaid(c, paidNow);
       c.due = rest;
       markStep(`com:${c.id}`);
       await saveState();
@@ -1711,7 +1730,14 @@ function wireEvents() {
     }
     if (d.delCom) {
       const c = find(state.commitments, d.delCom);
-      if (c) { const before = structuredClone(state); state.commitments = state.commitments.filter((x) => x !== c); saveState(); planUndo(`Remove ${c.name.split(' (')[0]}`, before); toast(`Removed ${c.name.split(' (')[0]}.`, { undo: true }); }
+      if (c) {
+        const before = structuredClone(state);
+        state.commitments = state.commitments.filter((x) => x !== c);
+        if (state.payday?.steps) state.payday.steps = state.payday.steps.filter((x) => x.ref !== c.id);
+        saveState();
+        planUndo(`Remove ${c.name.split(' (')[0]}`, before);
+        toast(`Removed ${c.name.split(' (')[0]}. Nothing was paid or taken off your balance.`, { undo: true });
+      }
     }
     if (d.open) ({ balances: balancesForm, settings: settingsForm, plan: planForm })[d.open]?.();
     if (d.payCom) payForm(find(state.commitments, d.payCom));
@@ -1741,6 +1767,7 @@ function wireEvents() {
       if (l) lessonDialog(l);
     }
     if (d.step) tickStep(d.step);
+    if (d.locked) toast(d.locked);
     if (d.stepAmount) {
       const st = state.payday?.steps?.find((x) => x.key === d.stepAmount);
       if (st) {

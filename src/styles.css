@@ -635,3 +635,20 @@ table.history tr.current td:first-child { font-weight: 700; }
 
 /* a message never covers an open sheet's buttons */
 body:has(#overlay.open) .toast { opacity: 0; pointer-events: none; }
+
+/* payments: clear Paid / Edit / Remove, and a ticked "Paid recently" list */
+.comactions { grid-column: 2 / 4; display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+.paybtn { display: inline-flex; align-items: center; gap: 6px; border: 0; background: var(--forest); color: #fff; border-radius: 10px; padding: 7px 12px; font-size: 13px; font-weight: 800; transition: transform .15s var(--spring); touch-action: manipulation; }
+.paybtn svg { width: 14px; height: 14px; fill: none; stroke: var(--green); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.paybtn:active { transform: scale(.94); }
+.smallbtn.danger, .linkbtn.danger { color: var(--over); }
+.paidrecent { margin-top: 10px; padding-top: 4px; border-top: 1px dashed var(--line); }
+.paidrow { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 7px 0; font-size: 14px; color: var(--muted); animation: rise .35s var(--ease) both; }
+.paidrow > span:nth-child(2) { text-decoration: line-through; overflow-wrap: anywhere; }
+.paidrow b { font: 500 13.5px var(--mono); color: var(--muted); }
+.paidtick { width: 24px; height: 24px; border-radius: 50%; background: var(--forest); display: grid; place-items: center; animation: pop .35s var(--spring) both; }
+.paidtick svg { width: 13px; height: 13px; fill: none; stroke: var(--green); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.ckactions { display: flex; gap: 14px; flex-wrap: wrap; }
+.ckstep.locked .ckbox { cursor: help; }
+.ckactions { gap: 4px 14px; margin-top: 2px; }
+.ckactions .linkbtn.ckpart { margin-top: 0; padding: 4px 0; }
